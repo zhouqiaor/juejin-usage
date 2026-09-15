@@ -178,7 +178,7 @@ export function PlanBalanceCard({
                     <span className="font-semibold text-foreground/80">
                       {mainWindow.used_pct?.toFixed(1)}%
                     </span>
-                    {mainWindow.quota != null && mainWindow.used != null && (
+                    {mainWindow.quota != null && mainWindow.used != null && mainWindow.quota > 0 && (
                       <span className="ml-2">
                         {Math.round(mainWindow.used).toLocaleString()} /{' '}
                         {Math.round(mainWindow.quota).toLocaleString()}

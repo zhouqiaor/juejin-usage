@@ -69,7 +69,14 @@ export function PlanBalanceWindowRow({ window: w }: Props) {
         />
       </div>
       <div className="mt-1 flex items-center justify-between text-[10px] text-foreground/60 tabular-nums">
-        {w.model && <span>{w.model}</span>}
+        <span>
+          {w.model}
+          {w.model && w.quota != null && w.used != null && w.quota > 0 && (
+            <span className="ml-1.5">
+              {Math.round(w.used).toLocaleString()} / {Math.round(w.quota).toLocaleString()}
+            </span>
+          )}
+        </span>
         <span title={w.resets_at ?? ''}>
           {w.resets_at ? `重置 ${w.resets_at}` : '无重置时间'}
         </span>
