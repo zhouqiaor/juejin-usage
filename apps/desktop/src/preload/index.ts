@@ -23,6 +23,12 @@ import {
   type DashboardRange,
 } from '../shared/dashboard-range';
 import { isThemeMode, type Theme, type ThemeMode } from '../shared/theme';
+import {
+  PLAN_BALANCE_IPC,
+  type PlanBalanceEnvelope,
+  type PlanBalanceKeyStatus,
+  type PlanBalanceSnapshot,
+} from '../shared/plan-balance';
 import type { CodexSubscriptionSnapshot } from '../shared/codex-subscription';
 import type { ClaudeSubscriptionSnapshot } from '../shared/claude-subscription';
 import type { CursorSubscriptionSnapshot } from '../shared/cursor-subscription';
@@ -31,15 +37,6 @@ import type { KimiSubscriptionSnapshot } from '../shared/kimi-subscription';
 import type { ZcodeSubscriptionSnapshot } from '../shared/zcode-subscription';
 import type { AntigravitySubscriptionSnapshot } from '../shared/antigravity-subscription';
 import type { QoderSubscriptionSnapshot } from '../shared/qoder-subscription';
-import type { MiniMaxSubscriptionSnapshot } from '../shared/minimax-subscription';
-import type { DeepSeekSubscriptionSnapshot } from '../shared/deepseek-subscription';
-import type { OpenCodeSubscriptionSnapshot } from '../shared/opencode-subscription';
-import type { TraeSubscriptionSnapshot } from '../shared/trae-subscription';
-import type { WorkBuddySubscriptionSnapshot } from '../shared/workbuddy-subscription';
-import {
-  isPetSyncFeedback,
-  type PetSyncFeedback,
-} from '../shared/pet-sync-feedback';
 
 const API_REQUEST_CHANNEL = 'tud:api-request';
 const DATA_SYNCED_CHANNEL = 'tud:data-synced';
@@ -61,8 +58,6 @@ const DESKTOP_PET_SET_MOUSE_IGNORE_CHANNEL = 'desktop-pet:set-ignore-mouse-event
 const DESKTOP_PET_ANIMATION_CHANNEL = 'desktop-pet:animation';
 const DESKTOP_PET_CATALOG_CHANNEL = 'desktop-pet:catalog';
 const DESKTOP_PET_REFRESH_CATALOG_CHANNEL = 'desktop-pet:refresh-catalog';
-const DESKTOP_PET_FETCH_REMOTE_CATALOG_CHANNEL = 'desktop-pet:fetch-remote-catalog';
-const DESKTOP_PET_INSTALL_REMOTE_CHANNEL = 'desktop-pet:install-remote';
 const DESKTOP_PET_OPEN_DIRECTORY_CHANNEL = 'desktop-pet:open-directory';
 const DESKTOP_PET_SPRITESHEET_URL_CHANNEL = 'desktop-pet:spritesheet-url';
 const SHARE_CARD_COPY_IMAGE_CHANNEL = 'share-card:copy-image';
@@ -74,13 +69,6 @@ const KIMI_SUBSCRIPTION_GET_CHANNEL = 'kimi-subscription:get';
 const ZCODE_SUBSCRIPTION_GET_CHANNEL = 'zcode-subscription:get';
 const ANTIGRAVITY_SUBSCRIPTION_GET_CHANNEL = 'antigravity-subscription:get';
 const QODER_SUBSCRIPTION_GET_CHANNEL = 'qoder-subscription:get';
-const MINIMAX_SUBSCRIPTION_GET_CHANNEL = 'minimax-subscription:get';
-const DEEPSEEK_SUBSCRIPTION_GET_CHANNEL = 'deepseek-subscription:get';
-const OPENCODE_SUBSCRIPTION_GET_CHANNEL = 'opencode-subscription:get';
-const TRAE_GLOBAL_SUBSCRIPTION_GET_CHANNEL = 'trae-global-subscription:get';
-const TRAE_CN_SUBSCRIPTION_GET_CHANNEL = 'trae-cn-subscription:get';
-const WORKBUDDY_GLOBAL_SUBSCRIPTION_GET_CHANNEL = 'workbuddy-global-subscription:get';
-const WORKBUDDY_MAINLAND_SUBSCRIPTION_GET_CHANNEL = 'workbuddy-mainland-subscription:get';
 
 type SettingsTabId = 'sync' | 'pet' | 'app';
 
@@ -146,27 +134,6 @@ const tudApi = {
 
   getQoderSubscription: (): Promise<QoderSubscriptionSnapshot> =>
     ipcRenderer.invoke(QODER_SUBSCRIPTION_GET_CHANNEL),
-
-  getMiniMaxSubscription: (options?: { forceRefresh?: boolean }): Promise<MiniMaxSubscriptionSnapshot> =>
-    ipcRenderer.invoke(MINIMAX_SUBSCRIPTION_GET_CHANNEL, options),
-
-  getDeepSeekSubscription: (options?: { forceRefresh?: boolean }): Promise<DeepSeekSubscriptionSnapshot> =>
-    ipcRenderer.invoke(DEEPSEEK_SUBSCRIPTION_GET_CHANNEL, options),
-
-  getOpenCodeSubscription: (options?: { forceRefresh?: boolean }): Promise<OpenCodeSubscriptionSnapshot> =>
-    ipcRenderer.invoke(OPENCODE_SUBSCRIPTION_GET_CHANNEL, options),
-
-  getTraeGlobalSubscription: (options?: { forceRefresh?: boolean }): Promise<TraeSubscriptionSnapshot> =>
-    ipcRenderer.invoke(TRAE_GLOBAL_SUBSCRIPTION_GET_CHANNEL, options),
-
-  getTraeCnSubscription: (options?: { forceRefresh?: boolean }): Promise<TraeSubscriptionSnapshot> =>
-    ipcRenderer.invoke(TRAE_CN_SUBSCRIPTION_GET_CHANNEL, options),
-
-  getWorkBuddyGlobalSubscription: (options?: { forceRefresh?: boolean }): Promise<WorkBuddySubscriptionSnapshot> =>
-    ipcRenderer.invoke(WORKBUDDY_GLOBAL_SUBSCRIPTION_GET_CHANNEL, options),
-
-  getWorkBuddyMainlandSubscription: (options?: { forceRefresh?: boolean }): Promise<WorkBuddySubscriptionSnapshot> =>
-    ipcRenderer.invoke(WORKBUDDY_MAINLAND_SUBSCRIPTION_GET_CHANNEL, options),
 
 
   /** Open http(s) in the OS default browser (掘金登录). */
@@ -238,8 +205,6 @@ const tudApi = {
     frameIntervalMs: number;
     autoMoveEnabled: boolean;
     autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
   }> => ipcRenderer.invoke(DESKTOP_PET_GET_CHANNEL),
 
   setDesktopPetEnabled: (enabled: boolean): Promise<boolean> =>
@@ -248,12 +213,6 @@ const tudApi = {
   getDesktopPetCatalog: () => ipcRenderer.invoke(DESKTOP_PET_CATALOG_CHANNEL),
 
   refreshDesktopPetCatalog: () => ipcRenderer.invoke(DESKTOP_PET_REFRESH_CATALOG_CHANNEL),
-
-  fetchRemoteDesktopPetCatalog: (force?: boolean) =>
-    ipcRenderer.invoke(DESKTOP_PET_FETCH_REMOTE_CATALOG_CHANNEL, force === true),
-
-  installRemoteDesktopPet: (id: string) =>
-    ipcRenderer.invoke(DESKTOP_PET_INSTALL_REMOTE_CHANNEL, id),
 
   openDesktopPetDirectory: (): Promise<string> => ipcRenderer.invoke(DESKTOP_PET_OPEN_DIRECTORY_CHANNEL),
 
@@ -268,8 +227,6 @@ const tudApi = {
     frameIntervalMs: number;
     autoMoveEnabled: boolean;
     autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
   }> => ipcRenderer.invoke('desktop-pet:set-selected', selectedPetId),
 
   setDesktopPetPreferences: (changes: {
@@ -277,8 +234,6 @@ const tudApi = {
     frameIntervalMs?: number;
     autoMoveEnabled?: boolean;
     autoMoveIntervalMinutes?: number;
-    syncFeedbackEnabled?: boolean;
-    syncFeedbackDurationSec?: number;
   }): Promise<{
     enabled: boolean;
     selectedPetId: string;
@@ -287,8 +242,6 @@ const tudApi = {
     frameIntervalMs: number;
     autoMoveEnabled: boolean;
     autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
   }> => ipcRenderer.invoke('desktop-pet:set-preferences', changes),
 
   setDesktopPetMouseIgnored: (ignored: boolean) =>
@@ -320,8 +273,6 @@ const tudApi = {
     frameIntervalMs: number;
     autoMoveEnabled: boolean;
     autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
   }) => void) => {
     const listener = (_event: unknown, preferences: unknown) => {
       if (!preferences || typeof preferences !== 'object') return;
@@ -333,20 +284,8 @@ const tudApi = {
         frameIntervalMs?: unknown;
         autoMoveEnabled?: unknown;
         autoMoveIntervalMinutes?: unknown;
-        syncFeedbackEnabled?: unknown;
-        syncFeedbackDurationSec?: unknown;
       };
       if (typeof value.enabled !== 'boolean' || typeof value.selectedPetId !== 'string' || typeof value.scale !== 'number' || typeof value.frameIntervalMs !== 'number' || typeof value.autoMoveEnabled !== 'boolean' || typeof value.autoMoveIntervalMinutes !== 'number') return;
-      const syncFeedbackEnabled = typeof value.syncFeedbackEnabled === 'boolean'
-        ? value.syncFeedbackEnabled
-        : false;
-      const syncFeedbackDurationSec =
-        typeof value.syncFeedbackDurationSec === 'number'
-        && Number.isInteger(value.syncFeedbackDurationSec)
-        && value.syncFeedbackDurationSec >= 1
-        && value.syncFeedbackDurationSec <= 10
-          ? value.syncFeedbackDurationSec
-          : 3;
       callback({
         enabled: value.enabled,
         selectedPetId: value.selectedPetId,
@@ -354,8 +293,6 @@ const tudApi = {
         frameIntervalMs: value.frameIntervalMs,
         autoMoveEnabled: value.autoMoveEnabled,
         autoMoveIntervalMinutes: value.autoMoveIntervalMinutes,
-        syncFeedbackEnabled,
-        syncFeedbackDurationSec,
         ...(typeof value.position?.x === 'number' && typeof value.position.y === 'number'
           ? { position: { x: value.position.x, y: value.position.y } }
           : {}),
@@ -390,12 +327,33 @@ const tudApi = {
       },
     ): Promise<{ status: number; body: unknown }> =>
       ipcRenderer.invoke(API_REQUEST_CHANNEL, path, init),
+
+    /**
+     * 拉取所有 Coding Plan 余量（multi-provider 数组）。
+     * 信封: { success, message?, data: PlanBalanceSnapshot }
+     * 失败由 main 进程兜底（spawn 超时 / parse 错 / Key 缺），renderer 拿到 success=false
+     * 即视为 UNAVAILABLE 整体，不抛。
+     */
+    getPlanBalance: (): Promise<PlanBalanceEnvelope<PlanBalanceSnapshot>> =>
+      ipcRenderer.invoke(PLAN_BALANCE_IPC.PULL),
+
+    /**
+     * 强制刷新（清 main 进程 5s 缓存），用户点刷新按钮时调用。
+     * 5s 缓存窗口外自动失效，所以该方法主要给"立即拉"语义。
+     */
+    refreshPlanBalance: (): Promise<PlanBalanceEnvelope<PlanBalanceSnapshot>> =>
+      ipcRenderer.invoke(PLAN_BALANCE_IPC.REFRESH),
+
+    /**
+     * 查各 provider 凭证是否配置（无 Key 时 UI 显"请配置 MINIMAX_API_KEY / VOLC_*"）。
+     * 单一 HTTP 调用，front-end 可在空态时调用一次。
+     */
+    getPlanBalanceKeyStatus: (): Promise<PlanBalanceEnvelope<PlanBalanceKeyStatus[]>> =>
+      ipcRenderer.invoke(PLAN_BALANCE_IPC.KEY_STATUS),
   },
 
-  onDataSynced: (callback: (feedback?: PetSyncFeedback | null) => void) => {
-    const listener = (_event: unknown, feedback: unknown) => {
-      callback(isPetSyncFeedback(feedback) ? feedback : null);
-    };
+  onDataSynced: (callback: () => void) => {
+    const listener = () => callback();
     ipcRenderer.on(DATA_SYNCED_CHANNEL, listener);
     return () => ipcRenderer.removeListener(DATA_SYNCED_CHANNEL, listener);
   },

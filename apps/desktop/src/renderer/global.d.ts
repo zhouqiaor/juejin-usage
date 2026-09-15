@@ -51,27 +51,6 @@ declare global {
       getQoderSubscription: () => Promise<
         import('../shared/qoder-subscription').QoderSubscriptionSnapshot
       >;
-      getMiniMaxSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/minimax-subscription').MiniMaxSubscriptionSnapshot
-      >;
-      getDeepSeekSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/deepseek-subscription').DeepSeekSubscriptionSnapshot
-      >;
-      getOpenCodeSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/opencode-subscription').OpenCodeSubscriptionSnapshot
-      >;
-      getTraeGlobalSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/trae-subscription').TraeSubscriptionSnapshot
-      >;
-      getTraeCnSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/trae-subscription').TraeSubscriptionSnapshot
-      >;
-      getWorkBuddyGlobalSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/workbuddy-subscription').WorkBuddySubscriptionSnapshot
-      >;
-      getWorkBuddyMainlandSubscription: (options?: { forceRefresh?: boolean }) => Promise<
-        import('../shared/workbuddy-subscription').WorkBuddySubscriptionSnapshot
-      >;
       openExternal: (
         url: string,
       ) => Promise<{ ok: boolean; message?: string }>;
@@ -108,24 +87,10 @@ declare global {
         frameIntervalMs: number;
         autoMoveEnabled: boolean;
         autoMoveIntervalMinutes: number;
-        syncFeedbackEnabled: boolean;
-        syncFeedbackDurationSec: number;
       }>;
       setDesktopPetEnabled: (enabled: boolean) => Promise<boolean>;
       getDesktopPetCatalog: () => Promise<import('../shared/desktop-pet-catalog').DesktopPetCatalog>;
       refreshDesktopPetCatalog: () => Promise<import('../shared/desktop-pet-catalog').DesktopPetCatalog & { selectedPetId: string }>;
-      fetchRemoteDesktopPetCatalog: (force?: boolean) => Promise<
-        import('../shared/desktop-pet-catalog').DesktopPetCatalog & {
-          selectedPetId: string;
-          remoteError: string | null;
-        }
-      >;
-      installRemoteDesktopPet: (id: string) => Promise<
-        import('../shared/desktop-pet-catalog').DesktopPetCatalog & {
-          selectedPetId: string;
-          remoteError: string | null;
-        }
-      >;
       openDesktopPetDirectory: () => Promise<string>;
       getDesktopPetSpritesheetUrl: (id: string) => Promise<string>;
       setSelectedDesktopPet: (selectedPetId: string) => Promise<{
@@ -136,16 +101,12 @@ declare global {
         frameIntervalMs: number;
         autoMoveEnabled: boolean;
         autoMoveIntervalMinutes: number;
-        syncFeedbackEnabled: boolean;
-        syncFeedbackDurationSec: number;
       }>;
       setDesktopPetPreferences: (changes: {
         scale?: number;
         frameIntervalMs?: number;
         autoMoveEnabled?: boolean;
         autoMoveIntervalMinutes?: number;
-        syncFeedbackEnabled?: boolean;
-        syncFeedbackDurationSec?: number;
       }) => Promise<{
         enabled: boolean;
         selectedPetId: string;
@@ -154,8 +115,6 @@ declare global {
         frameIntervalMs: number;
         autoMoveEnabled: boolean;
         autoMoveIntervalMinutes: number;
-        syncFeedbackEnabled: boolean;
-        syncFeedbackDurationSec: number;
       }>;
       setDesktopPetMouseIgnored: (ignored: boolean) => void;
       beginDesktopPetDrag: () => void;
@@ -171,8 +130,6 @@ declare global {
         frameIntervalMs: number;
         autoMoveEnabled: boolean;
         autoMoveIntervalMinutes: number;
-        syncFeedbackEnabled: boolean;
-        syncFeedbackDurationSec: number;
       }) => void) => () => void;
       onMaximized: (callback: (isMaximized: boolean) => void) => () => void;
       api: {
@@ -184,12 +141,24 @@ declare global {
             headers?: Record<string, string>;
           },
         ) => Promise<{ status: number; body: unknown }>;
+        getPlanBalance: () => Promise<
+          import('../shared/plan-balance').PlanBalanceEnvelope<
+            import('../shared/plan-balance').PlanBalanceSnapshot
+          >
+        >;
+        refreshPlanBalance: () => Promise<
+          import('../shared/plan-balance').PlanBalanceEnvelope<
+            import('../shared/plan-balance').PlanBalanceSnapshot
+          >
+        >;
+        getPlanBalanceKeyStatus: () => Promise<
+          import('../shared/plan-balance').PlanBalanceEnvelope<
+            Array<import('../shared/plan-balance').PlanBalanceKeyStatus>
+          >
+        >;
       };
-      onDataSynced: (
-        callback: (
-          feedback?: import('../shared/pet-sync-feedback').PetSyncFeedback | null,
-        ) => void,
-      ) => () => void;
+      // 旧 getPlanBalance 等放顶层（不删, 以防其他 renderer 误用）
+      onDataSynced: (callback: () => void) => () => void;
       onOpenSettings: (
         callback: (detail?: {
           tab?: 'sync' | 'pet' | 'app';

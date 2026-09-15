@@ -35,11 +35,7 @@ import { registerKimiSubscriptionIpc } from './kimi-subscription-ipc';
 import { registerZcodeSubscriptionIpc } from './zcode-subscription-ipc';
 import { registerAntigravitySubscriptionIpc } from './antigravity-subscription-ipc';
 import { registerQoderSubscriptionIpc } from './qoder-subscription-ipc';
-import { registerMiniMaxSubscriptionIpc } from './minimax-subscription-ipc';
-import { registerDeepSeekSubscriptionIpc } from './deepseek-subscription-ipc';
-import { registerOpenCodeSubscriptionIpc } from './opencode-subscription-ipc';
-import { registerTraeSubscriptionIpc } from './trae-subscription-ipc';
-import { registerWorkBuddySubscriptionIpc } from './workbuddy-subscription-ipc';
+import { registerPlanBalanceIpc } from './plan-balance-ipc';
 import {
   localApiRequest,
   pokeSyncOnForeground,
@@ -99,11 +95,7 @@ let disposeKimiSubscriptionIpc: (() => void) | null = null;
 let disposeZcodeSubscriptionIpc: (() => void) | null = null;
 let disposeAntigravitySubscriptionIpc: (() => void) | null = null;
 let disposeQoderSubscriptionIpc: (() => void) | null = null;
-let disposeMiniMaxSubscriptionIpc: (() => void) | null = null;
-let disposeDeepSeekSubscriptionIpc: (() => void) | null = null;
-let disposeOpenCodeSubscriptionIpc: (() => void) | null = null;
-let disposeTraeSubscriptionIpc: (() => void) | null = null;
-let disposeWorkBuddySubscriptionIpc: (() => void) | null = null;
+let disposePlanBalanceIpc: (() => void) | null = null;
 let currentThemeMode: ThemeMode = 'system';
 let currentTheme: Theme = 'light';
 let pendingDeepLinkUrl: string | null = null;
@@ -480,11 +472,7 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeZcodeSubscriptionIpc = registerZcodeSubscriptionIpc();
     disposeAntigravitySubscriptionIpc = registerAntigravitySubscriptionIpc();
     disposeQoderSubscriptionIpc = registerQoderSubscriptionIpc();
-    disposeMiniMaxSubscriptionIpc = registerMiniMaxSubscriptionIpc();
-    disposeDeepSeekSubscriptionIpc = registerDeepSeekSubscriptionIpc();
-    disposeOpenCodeSubscriptionIpc = registerOpenCodeSubscriptionIpc();
-    disposeTraeSubscriptionIpc = registerTraeSubscriptionIpc();
-    disposeWorkBuddySubscriptionIpc = registerWorkBuddySubscriptionIpc();
+    disposePlanBalanceIpc = registerPlanBalanceIpc();
     try {
       await initAutostartOnLaunch();
     } catch (err) {
@@ -620,16 +608,8 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeAntigravitySubscriptionIpc = null;
     disposeQoderSubscriptionIpc?.();
     disposeQoderSubscriptionIpc = null;
-    disposeMiniMaxSubscriptionIpc?.();
-    disposeMiniMaxSubscriptionIpc = null;
-    disposeDeepSeekSubscriptionIpc?.();
-    disposeDeepSeekSubscriptionIpc = null;
-    disposeOpenCodeSubscriptionIpc?.();
-    disposeOpenCodeSubscriptionIpc = null;
-    disposeTraeSubscriptionIpc?.();
-    disposeTraeSubscriptionIpc = null;
-    disposeWorkBuddySubscriptionIpc?.();
-    disposeWorkBuddySubscriptionIpc = null;
+    disposePlanBalanceIpc?.();
+    disposePlanBalanceIpc = null;
     disposeAutoUpdate();
   });
 });
