@@ -164,6 +164,9 @@ export function usePlanBalance() {
   }, [fetchOnce, revision]);
 
   const refresh = useCallback(() => {
+    // 立即进入 refreshing：刷新按钮据此 spinner + isDisabled 防连点。
+    // 此前缺失该 setState，refreshing 永远为 false（防连点 UX 实际未生效）。
+    setState((s) => ({ ...s, refreshing: true }));
     setRevision((c) => c + 1);
     return fetchOnce(true);
   }, [fetchOnce]);
