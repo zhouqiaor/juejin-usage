@@ -2,7 +2,7 @@
 // main/plan-balance.ts — 拉取 quota-hub Coding Plan 余量（多 provider）
 //
 // 模式：仿 antigravity-subscription.ts
-//   - REQUEST_TIMEOUT_MS (5s)
+//   - REQUEST_TIMEOUT_MS (15s，容纳冷系统 DNS；见常量处实测)
 //   - CACHE_TTL_MS (5s, 与 QUOTA-UI-SPEC §14 一致)
 //   - lastSuccess 缓存 + requestInFlight dedup (避免 6 widget 各自 spawn)
 //   - staleFallback 失败时返回上次成功值 + stale=true
@@ -27,9 +27,17 @@ import type {
 
 const execFile = promisify(execFileCallback);
 
-const REQUEST_TIMEOUT_MS = 5_000;
+// 15s：热路径实测 1.3–2s；冷环境下瓶颈不在 Python 而在系统级 DNS——
+// 实测 api.minimaxi.com 冷解析（urllib timeout 管不到 getaddrinfo）可达 11s，
+// 叠加 TLS/跨站 1004 回退约 12-13s，旧 5s 会以 SIGTERM 杀掉子进程
+// （Node 侧表现为无 stderr 的「Command failed」killed=true）。
+const REQUEST_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 5_000;
+const SPAWN_ATTEMPTS = 2;
+const SPAWN_RETRY_DELAY_MS = 400;
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024; // 4 MB
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // -----------------------------------------------------------------------
 // 路径解析（vendor 仓根 = juejin-usage；quota-hub 根在其上层）
@@ -191,6 +199,10 @@ async function spawnPlanBalance(): Promise<PlanBalanceSnapshot> {
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error(`[plan-balance] JSON parse fail: stdout(前 300)=${safeMessage(stdout.slice(0, 300))}`);
+    if (stderr && stderr.trim()) {
+      // eslint-disable-next-line no-console
+      console.error(`[plan-balance] parse-fail stderr: ${safeMessage(stderr.slice(0, 800))}`);
+    }
     throw new Error(
       `plan_balance.py 输出非 JSON：${e instanceof Error ? e.message : String(e)}（stdout 前 300：${stdout.slice(0, 300)}）`,
     );
@@ -223,25 +235,44 @@ export function readPlanBalance(): Promise<PlanBalanceEnvelope<PlanBalanceSnapsh
     return requestInFlight;
   }
 
-  // 3) 实际拉取
+  // 3) 实际拉取（主进程内短退避重试：冷网络下首次 spawn 可能被超时杀掉，
+  //    此时 OS 网络栈已预热，400ms 后的第二次基本必成，无需等渲染层下一次 IPC）
   const p = (async (): Promise<PlanBalanceEnvelope<PlanBalanceSnapshot>> => {
     try {
-      const data = await spawnPlanBalance();
-      const env: PlanBalanceEnvelope<PlanBalanceSnapshot> = {
-        success: true,
-        message: '',
-        data,
-      };
-      lastSuccess = { envelope: env, ts: Date.now() };
-      lastFailure = null;
-      return env;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // eslint-disable-next-line no-console
-      console.error(`[plan-balance] spawn FAIL: ${safeMessage(msg)}`);
+      let lastMsg = '';
+      for (let attempt = 1; attempt <= SPAWN_ATTEMPTS; attempt++) {
+        try {
+          const data = await spawnPlanBalance();
+          const env: PlanBalanceEnvelope<PlanBalanceSnapshot> = {
+            success: true,
+            message: '',
+            data,
+          };
+          lastSuccess = { envelope: env, ts: Date.now() };
+          lastFailure = null;
+          return env;
+        } catch (e) {
+          lastMsg = e instanceof Error ? e.message : String(e);
+          const err = e as { code?: number | string; signal?: string; killed?: boolean; timedOut?: boolean; stderr?: string | Buffer; stdout?: string | Buffer };
+          const stderrTail = err.stderr != null
+            ? safeMessage(String(err.stderr).slice(-800))
+            : '';
+          // eslint-disable-next-line no-console
+          console.error(
+            `[plan-balance] spawn FAIL (attempt ${attempt}/${SPAWN_ATTEMPTS}): ${safeMessage(lastMsg)} ` +
+            `code=${err.code ?? '?'} signal=${err.signal ?? '-'} timedOut=${!!err.timedOut} killed=${!!err.killed}` +
+            (stderrTail ? ` stderr_tail=${stderrTail}` : ''),
+          );
+          if (attempt < SPAWN_ATTEMPTS) {
+            // eslint-disable-next-line no-console
+            console.log(`[plan-balance] ${SPAWN_RETRY_DELAY_MS}ms 后主进程内重试`);
+            await sleep(SPAWN_RETRY_DELAY_MS);
+          }
+        }
+      }
       const errEnv: PlanBalanceEnvelope<PlanBalanceSnapshot> = {
         success: false,
-        message: safeMessage(msg),
+        message: safeMessage(lastMsg),
         data: {
           generated_at: new Date().toISOString(),
           snapshot: false,
@@ -258,7 +289,7 @@ export function readPlanBalance(): Promise<PlanBalanceEnvelope<PlanBalanceSnapsh
       if (lastSuccess) {
         return {
           success: true,
-          message: safeMessage(msg) + '（数据为上次成功快照）',
+          message: safeMessage(lastMsg) + '（数据为上次成功快照）',
           data: { ...lastSuccess.envelope.data!, snapshot: true },
         };
       }
@@ -276,6 +307,27 @@ export function refreshPlanBalance(): Promise<PlanBalanceEnvelope<PlanBalanceSna
   lastSuccess = null;
   lastFailure = null;
   return readPlanBalance();
+}
+
+// 启动静默预热：冷系统 DNS（实测 api.minimaxi.com getaddrinfo 可达 11s，
+// urllib 的 timeout 管不到解析阶段）会让用户看到的首次余量查询失败/超慢。
+// app 启动后先在后台跑一次填充 lastSuccess 与系统 DNS 缓存，
+// 之后渲染层的 5s 轮询持续保热。失败无感知（下次 IPC 调用仍会重试）。
+let warmupStarted = false;
+export function warmupPlanBalance(opts: { delayMs?: number } = {}): void {
+  if (warmupStarted) return;
+  warmupStarted = true;
+  const delay = opts.delayMs ?? 3_000;
+  setTimeout(() => {
+    // eslint-disable-next-line no-console
+    console.log('[plan-balance] startup warmup: 后台静默预取余量（预热 DNS/缓存）');
+    readPlanBalance().then((env) => {
+      // eslint-disable-next-line no-console
+      console.log(
+        `[plan-balance] warmup done success=${env.success} balances=${env.data?.balances.length ?? 0}`,
+      );
+    }).catch(() => { /* 预热失败静默，下次调用自然重试 */ });
+  }, delay);
 }
 
 // -----------------------------------------------------------------------

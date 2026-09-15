@@ -9,12 +9,16 @@ import {
   readPlanBalance,
   refreshPlanBalance,
   readPlanBalanceKeyStatus,
+  warmupPlanBalance,
 } from './plan-balance';
 
 export function registerPlanBalanceIpc(): () => void {
   ipcMain.removeHandler(PLAN_BALANCE_IPC.PULL);
   ipcMain.removeHandler(PLAN_BALANCE_IPC.REFRESH);
   ipcMain.removeHandler(PLAN_BALANCE_IPC.KEY_STATUS);
+
+  // 后台预热（冷 DNS / lastSuccess 缓存），不阻塞注册
+  warmupPlanBalance();
 
   ipcMain.handle(PLAN_BALANCE_IPC.PULL, () => readPlanBalance());
   ipcMain.handle(PLAN_BALANCE_IPC.REFRESH, () => refreshPlanBalance());
