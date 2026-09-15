@@ -151,7 +151,14 @@ async function spawnPlanBalance(): Promise<PlanBalanceSnapshot> {
   const script = resolvePlanBalanceScript();
   const py = resolvePython();
   // Key 透传（仅 MINIMAX_* / VOLC_*）
-  const env: NodeJS.ProcessEnv = { ...process.env };
+  // 强制子进程 UTF-8：Windows 中文系统下 Python 管道 stdout 默认 cp936/gbk，
+  // 而 plan_balance.py 以 json.dumps(ensure_ascii=False) 输出中文 plan_label，
+  // execFile 按 utf-8 解码 GBK 字节会乱码（「火山方舟」卡片标题 mojibake）。
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    PYTHONIOENCODING: 'utf-8',
+    PYTHONUTF8: '1',
+  };
   const t0 = Date.now();
   // eslint-disable-next-line no-console
   console.log(`[plan-balance] spawn py=${py} script=${script}`);
@@ -164,6 +171,9 @@ async function spawnPlanBalance(): Promise<PlanBalanceSnapshot> {
       maxBuffer: MAX_OUTPUT_BYTES,
       env,
       windowsHide: true,
+      // 显式钉死 utf-8（execFile 默认即 utf8，但防止任何上层默认值漂移）：
+      // stdout 必须与子进程 PYTHONIOENCODING=utf-8 对齐，杜绝 latin1/GBK 二次 decode
+      encoding: 'utf8',
     },
   );
   const elapsed = Date.now() - t0;
