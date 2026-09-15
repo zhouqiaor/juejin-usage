@@ -55,6 +55,14 @@ function useDeferredDashboardRange(range: DashboardRange): DashboardRange {
   return dataRange;
 }
 
+/** 本地聚合未产出趋势比较值时的空兜底（各比较为 null，组件按无趋势渲染） */
+const EMPTY_METRIC_TRENDS = {
+  inputTokens: null,
+  outputTokens: null,
+  totalTokens: null,
+  totalCostUsd: null,
+};
+
 /** HeroUI dashboard backed by the same usage dataset as the root route. */
 export function DashboardPage() {
   const [range, setRange] = useLocalStorage<DashboardRange>(
@@ -234,9 +242,12 @@ export function DashboardPage() {
           {/* ⑨ Coding Plan 余量（Dashboard 顶部，quota-hub 归一层注入，与已用 token 正交·防双算） */}
           <PlanBalanceSection />
           <DashboardOverviewCard
-            dailyUsage={data.dailyUsage}
+            metricTrendRows={
+              isHourly ? visibleTrendRows.hourlyRows : visibleTrendRows.dailyRows
+            }
+            metricTrendPeriodLabel={shareRangeLabel}
             heatmapDays={data.heatmapDays}
-            metricTrends={view.metricTrends}
+            metricTrends={EMPTY_METRIC_TRENDS}
             modelRows={data.modelRows}
             onSelectDate={handleSelectDate}
             selectedDate={selectedDate}
