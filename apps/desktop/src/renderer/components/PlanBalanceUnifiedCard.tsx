@@ -16,15 +16,11 @@ import {
   otherWindows,
   planTitle,
   selectWindow,
+  windowTone,
   type WindowKey,
 } from '../lib/plan-balance-view';
+import { PlanBalanceStatusBadge } from './PlanBalanceStatusDot';
 import { PlanBalanceWindowRow } from './PlanBalanceWindowRow';
-
-const STATUS_BG: Record<string, string> = {
-  ready: 'bg-success',
-  partial: 'bg-warning',
-  unavailable: 'bg-danger',
-};
 
 const STATUS_TEXT: Record<string, string> = {
   ready: 'text-success',
@@ -43,6 +39,7 @@ function ProviderRow({ plan }: { plan: PlanBalance }) {
   const headPct = hasMain ? mainWindow.remaining_pct : null;
   const rest = otherWindows(plan, mainWindow);
   const title = planTitle(plan);
+  const mainTone = mainWindow ? windowTone(mainWindow) : null;
 
   return (
     <article
@@ -54,24 +51,13 @@ function ProviderRow({ plan }: { plan: PlanBalance }) {
     >
       <header className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span
-            aria-hidden="true"
-            className={cn('inline-block size-2 shrink-0 rounded-full', STATUS_BG[plan.status])}
-          />
           <h4 className="truncate text-sm font-semibold text-foreground">{title}</h4>
           {plan.stale && (
             <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[10px] font-medium text-warning">
-              stale
+              陈旧
             </span>
           )}
-          <span
-            className={cn(
-              'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white',
-              STATUS_BG[plan.status],
-            )}
-          >
-            {plan.status}
-          </span>
+          <PlanBalanceStatusBadge status={plan.status} />
         </div>
         {plan.windows.length > 0 && (
           <Tabs
@@ -109,14 +95,24 @@ function ProviderRow({ plan }: { plan: PlanBalance }) {
         <p className="py-4 text-center text-xs text-muted">{plan.message || '无窗口数据'}</p>
       ) : (
         <>
-          {hasMain && mainWindow && headPct != null && (
+          {hasMain && mainWindow && headPct != null && mainTone && (
             <div className="rounded-medium border border-default-200/40 p-2.5 ring-2 ring-accent">
-              <div className="flex items-baseline justify-between">
-                <span className="text-xs font-medium text-muted">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
                   {mainWindow.window_label}
                   {mainWindow.model && (
-                    <span className="ml-1 text-[10px] text-foreground/40">
+                    <span className="text-[10px] text-foreground/40">
                       · {mainWindow.model}
+                    </span>
+                  )}
+                  {mainTone.tag && mainTone.tagClass && (
+                    <span
+                      className={cn(
+                        'rounded-full px-1.5 py-px text-[9px] font-medium leading-tight',
+                        mainTone.tagClass,
+                      )}
+                    >
+                      {mainTone.tag}
                     </span>
                   )}
                 </span>
@@ -129,8 +125,8 @@ function ProviderRow({ plan }: { plan: PlanBalance }) {
               </div>
               <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-default-100">
                 <div
-                  className={cn('h-full rounded-full transition-all', STATUS_BG[plan.status])}
-                  style={{ width: `${mainWindow.used_pct}%` }}
+                  className={cn('h-full rounded-full transition-all', mainTone.barClass)}
+                  style={{ width: `${mainWindow.used_pct ?? 0}%` }}
                   role="progressbar"
                   aria-valuenow={Math.round(mainWindow.used_pct ?? 0)}
                   aria-valuemin={0}
@@ -161,9 +157,8 @@ function ProviderRow({ plan }: { plan: PlanBalance }) {
             <div className="space-y-1">
               {rest.map((w) => (
                 <PlanBalanceWindowRow
-                  key={w.window}
+                  key={`${w.window}-${w.model ?? ''}`}
                   window={w}
-                  barClass={STATUS_BG[plan.status]}
                 />
               ))}
             </div>

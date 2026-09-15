@@ -82,3 +82,127 @@ export const SEPARATE_GRID_CLASS =
 export function resolveLayout(value: unknown): PlanBalanceLayout {
   return value === 'unified' ? 'unified' : DEFAULT_PLAN_BALANCE_LAYOUT;
 }
+
+// ---------------------------------------------------------------------------
+// 双语义窗口色调 + 阈值进度条（2026-09-15 UX polish）
+//
+// 两套语义不可共用一种红（docs UX 决议）：
+//   - five_hour 是速率限制语义（HTTP 429）：紧张用紫色系 + 「限流」文字标签
+//   - weekly_limit / monthly 是预算语义（HTTP 402）：紧张用琥珀/红 + 「预算」文字标签
+// 阈值对齐安卓 QuotaWidget.kt gTierColor（以 used_pct 判定，不用 remaining_pct）：
+//   <75 正常（accent 蓝） · >=75 预警 · >=90 临界
+// 颜色永远伴随文字标签（无障碍：不能仅靠颜色）。
+// 注意：这里只读 sidecar 给的 used_pct，绝不重算 remaining_pct（防双算铁律）。
+// ---------------------------------------------------------------------------
+
+export type UsageTier = 'normal' | 'warn' | 'critical' | 'unknown';
+
+/** five_hour=限流（429 语义）；周/月=预算（402 语义） */
+export type WindowSemantic = 'rate' | 'budget';
+
+export const USAGE_WARN_GE = 75;
+export const USAGE_CRITICAL_GE = 90;
+
+/** 已用率分档（null/NaN → unknown，进度条走中性灰，不臆造颜色） */
+export function usageTier(usedPct: number | null | undefined): UsageTier {
+  if (usedPct == null || Number.isNaN(usedPct)) return 'unknown';
+  if (usedPct >= USAGE_CRITICAL_GE) return 'critical';
+  if (usedPct >= USAGE_WARN_GE) return 'warn';
+  return 'normal';
+}
+
+/** 窗口语义：5h 速率窗口 vs 周/月预算窗口 */
+export function windowSemantic(w: Pick<PlanWindow, 'window'>): WindowSemantic {
+  return w.window === 'five_hour' ? 'rate' : 'budget';
+}
+
+export interface WindowTone {
+  tier: UsageTier;
+  semantic: WindowSemantic;
+  /** 进度条填充 class */
+  barClass: string;
+  /** 紧张时的文字标签（始终非空 iff 非 unknown 的 warn/critical），null=不显示 */
+  tag: string | null;
+  /** 标签 chip class（配色与文字标签成对出现） */
+  tagClass: string | null;
+}
+
+const RATE_TAG_CLASS = 'bg-violet-500/10 text-violet-600 dark:text-violet-400';
+const BUDGET_WARN_TAG_CLASS = 'bg-warning/15 text-warning';
+const BUDGET_CRITICAL_TAG_CLASS = 'bg-danger/15 text-danger';
+
+/**
+ * 计算单个窗口的进度条色调与文字标签。
+ * 纯函数，组件层禁止自行用 used_pct 拼 class（统一从此处取，保证两种布局口径一致）。
+ */
+export function windowTone(w: PlanWindow): WindowTone {
+  const tier = usageTier(w.used_pct);
+  const semantic = windowSemantic(w);
+
+  if (tier === 'unknown') {
+    return { tier, semantic, barClass: 'bg-default-300', tag: null, tagClass: null };
+  }
+  if (semantic === 'rate') {
+    // 429 速率语义：与预算的红拉开色相，统一紫；临界只改文案不改色（紫本身已表义）
+    if (tier === 'normal') {
+      return { tier, semantic, barClass: 'bg-accent', tag: null, tagClass: null };
+    }
+    return {
+      tier,
+      semantic,
+      barClass: 'bg-violet-500',
+      tag: tier === 'critical' ? '限流临界' : '限流偏紧',
+      tagClass: RATE_TAG_CLASS,
+    };
+  }
+  // 402 预算语义
+  if (tier === 'normal') {
+    return { tier, semantic, barClass: 'bg-accent', tag: null, tagClass: null };
+  }
+  if (tier === 'critical') {
+    return {
+      tier,
+      semantic,
+      barClass: 'bg-danger',
+      tag: '预算临界',
+      tagClass: BUDGET_CRITICAL_TAG_CLASS,
+    };
+  }
+  return {
+    tier,
+    semantic,
+    barClass: 'bg-warning',
+    tag: '预算偏紧',
+    tagClass: BUDGET_WARN_TAG_CLASS,
+  };
+}
+
+/** 三态中文标签（状态不能只靠颜色：徽章同时给文字） */
+export const STATUS_LABEL: Record<PlanStatus, string> = {
+  ready: '就绪',
+  partial: '部分可用',
+  unavailable: '不可用',
+};
+
+/** 三态徽章底色（数据完整度语义，与窗口阈值色是两回事） */
+export const STATUS_BADGE_CLASS: Record<PlanStatus, string> = {
+  ready: 'bg-success',
+  partial: 'bg-warning',
+  unavailable: 'bg-danger',
+};
+
+/** 相对时间文案：刚刚 / x 分钟前 / x 小时前 / x 天前（stale 卡内指示用，可注入 now 便于测试） */
+export function formatUpdatedAgo(
+  date: Date | null,
+  nowMs: number = Date.now(),
+): string | null {
+  if (!date) return null;
+  const ms = nowMs - date.getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '刚刚';
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return '刚刚';
+  if (mins < 60) return `${mins} 分钟前`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
+}

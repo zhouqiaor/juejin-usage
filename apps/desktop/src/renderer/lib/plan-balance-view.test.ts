@@ -13,13 +13,18 @@ import type { PlanBalance, PlanWindow } from '../../shared/plan-balance';
 import {
   DEFAULT_PLAN_BALANCE_LAYOUT,
   SEPARATE_GRID_CLASS,
+  STATUS_LABEL,
   WINDOW_TABS,
+  formatUpdatedAgo,
   hasWindowPct,
   otherWindows,
   planTitle,
   resolveLayout,
   selectWindow,
   sortBalances,
+  usageTier,
+  windowSemantic,
+  windowTone,
 } from './plan-balance-view';
 
 function win(over: Partial<PlanWindow> = {}): PlanWindow {
@@ -168,4 +173,91 @@ test('WINDOW_TABS exposes 5h/周/月 keys and the separate grid is a responsive 
   assert.match(SEPARATE_GRID_CLASS, /grid/);
   assert.match(SEPARATE_GRID_CLASS, /sm:grid-cols-2/);
   assert.match(SEPARATE_GRID_CLASS, /lg:grid-cols-2/);
+});
+
+// -----------------------------------------------------------------------
+// 阈值分档：used_pct <75 normal / >=75 warn / >=90 critical（对齐安卓 gTierColor）
+// 只用 sidecar 给的 used_pct 分档，不碰 remaining_pct（防双算）
+// -----------------------------------------------------------------------
+test('usageTier thresholds on used_pct: <75 normal, >=75 warn, >=90 critical, null unknown', () => {
+  assert.equal(usageTier(0), 'normal');
+  assert.equal(usageTier(74.9), 'normal');
+  assert.equal(usageTier(75), 'warn');
+  assert.equal(usageTier(89.9), 'warn');
+  assert.equal(usageTier(90), 'critical');
+  assert.equal(usageTier(100), 'critical');
+  assert.equal(usageTier(null), 'unknown');
+  assert.equal(usageTier(undefined), 'unknown');
+  assert.equal(usageTier(Number.NaN), 'unknown');
+});
+
+// -----------------------------------------------------------------------
+// 双语义：5h=限流(429, 紫)；周/月=预算(402, 琥珀/红)；两种红不得共用
+// -----------------------------------------------------------------------
+test('windowSemantic maps five_hour to rate and weekly/monthly to budget', () => {
+  assert.equal(windowSemantic(win({ window: 'five_hour' })), 'rate');
+  assert.equal(windowSemantic(win({ window: 'weekly_limit' })), 'budget');
+  assert.equal(windowSemantic(win({ window: 'monthly' })), 'budget');
+});
+
+test('windowTone: budget windows use blue/amber/red with 预算 text tags', () => {
+  const normal = windowTone(win({ window: 'monthly', used_pct: 50 }));
+  assert.equal(normal.barClass, 'bg-accent');
+  assert.equal(normal.tag, null);
+
+  const warn = windowTone(win({ window: 'weekly_limit', used_pct: 80 }));
+  assert.equal(warn.barClass, 'bg-warning');
+  assert.equal(warn.tag, '预算偏紧');
+  assert.ok(warn.tagClass?.includes('text-warning'));
+
+  const critical = windowTone(win({ window: 'monthly', used_pct: 95 }));
+  assert.equal(critical.barClass, 'bg-danger');
+  assert.equal(critical.tag, '预算临界');
+  assert.ok(critical.tagClass?.includes('text-danger'));
+});
+
+test('windowTone: rate window uses violet (never danger red) at high usage with 限流 tag', () => {
+  const warn = windowTone(win({ window: 'five_hour', used_pct: 80 }));
+  assert.equal(warn.barClass, 'bg-violet-500');
+  assert.equal(warn.tag, '限流偏紧');
+  assert.ok(warn.tagClass?.includes('violet'));
+
+  const critical = windowTone(win({ window: 'five_hour', used_pct: 99 }));
+  assert.equal(critical.barClass, 'bg-violet-500');
+  assert.equal(critical.tag, '限流临界');
+  // 关键不变量：限流语义绝不能用预算的红
+  assert.ok(!critical.barClass.includes('danger'));
+  assert.ok(!critical.tagClass?.includes('danger'));
+
+  const normal = windowTone(win({ window: 'five_hour', used_pct: 10 }));
+  assert.equal(normal.barClass, 'bg-accent');
+  assert.equal(normal.tag, null);
+});
+
+test('windowTone: missing used_pct renders neutral grey with no tag', () => {
+  const t = windowTone(win({ window: 'five_hour', used_pct: null }));
+  assert.equal(t.tier, 'unknown');
+  assert.equal(t.barClass, 'bg-default-300');
+  assert.equal(t.tag, null);
+});
+
+test('STATUS_LABEL provides a non-color text channel for all three states', () => {
+  assert.deepEqual(Object.keys(STATUS_LABEL).sort(), ['partial', 'ready', 'unavailable']);
+  for (const label of Object.values(STATUS_LABEL)) {
+  assert.ok(label.length > 0);
+  }
+});
+
+// -----------------------------------------------------------------------
+// stale 卡内指示相对时间文案（formatUpdatedAgo，可注入 now）
+// -----------------------------------------------------------------------
+test('formatUpdatedAgo renders relative Chinese labels', () => {
+  const now = new Date('2026-09-15T12:00:00+08:00').getTime();
+  assert.equal(formatUpdatedAgo(null, now), null);
+  assert.equal(formatUpdatedAgo(new Date(now - 5_000), now), '刚刚');
+  assert.equal(formatUpdatedAgo(new Date(now - 3 * 60_000), now), '3 分钟前');
+  assert.equal(formatUpdatedAgo(new Date(now - 2 * 3_600_000), now), '2 小时前');
+  assert.equal(formatUpdatedAgo(new Date(now - 3 * 86_400_000), now), '3 天前');
+  // 时钟回拨等异常情况不输出负数
+  assert.equal(formatUpdatedAgo(new Date(now + 60_000), now), '刚刚');
 });

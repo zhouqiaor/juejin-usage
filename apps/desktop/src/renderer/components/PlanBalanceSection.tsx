@@ -43,7 +43,7 @@ function SkeletonCard() {
 }
 
 export function PlanBalanceSection() {
-  const { data, loading, error, lastUpdated, fetchOk, refresh } = usePlanBalance();
+  const { data, loading, error, lastUpdated, fetchOk, refreshing, refresh } = usePlanBalance();
   const [hasAnyKey, setHasAnyKey] = useState<boolean | null>(null);
 
   // 查凭证状态（一次性）
@@ -74,14 +74,7 @@ export function PlanBalanceSection() {
 
   return (
     <section role="region" aria-label="Coding Plan 余量" className="mb-4 mt-4 space-y-4">
-      {!fetchOk && error && hasData && (
-        <div
-          className="rounded-medium border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
-          role="status"
-        >
-          本次拉取失败，已渲染上次成功快照 · 原因：{error}
-        </div>
-      )}
+      {/* stale/fetchOk=false 指示已下沉到卡头（上次更新 x 分钟前 + 重试按钮），此处不再重复横幅 */}
 
       {showSkeleton ? (
         <div className={SEPARATE_GRID_CLASS}>
@@ -105,6 +98,8 @@ export function PlanBalanceSection() {
               plan={plan}
               lastUpdated={lastUpdated}
               onRefresh={refresh}
+              fetchOk={fetchOk}
+              refreshing={refreshing}
             />
           ))}
         </div>
