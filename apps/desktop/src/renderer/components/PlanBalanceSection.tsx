@@ -73,7 +73,7 @@ export function PlanBalanceSection() {
   const sorted: PlanBalance[] = sortBalances(balances);
 
   return (
-    <section role="region" aria-label="Coding Plan 余量" className="mt-4 space-y-4">
+    <section role="region" aria-label="Coding Plan 余量" className="mb-4 mt-4 space-y-4">
       {!fetchOk && error && hasData && (
         <div
           className="rounded-medium border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
