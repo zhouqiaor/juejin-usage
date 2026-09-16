@@ -73,6 +73,12 @@
     "src/shared/workbuddy-subscription.ts",
     "src/shared/workbuddy-subscription.test.ts",
     "src/main/workbuddy-subscription.ts",
-    "src/main/workbuddy-subscription.test.ts"
+    "src/main/workbuddy-subscription.test.ts",
+    "src/shared/ark-subscription.ts",
+    "src/shared/ark-subscription.test.ts",
+    "src/main/ark-subscription.ts",
+    "src/main/ark-subscription.test.ts",
+    "src/main/ark-signing.ts",
+    "src/main/ark-signing.test.ts"
   ]
 }
