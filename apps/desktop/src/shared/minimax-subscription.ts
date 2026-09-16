@@ -141,7 +141,8 @@ export function mapMiniMaxQuota(value: unknown): Pick<
     };
     let hasFiveHour = false;
     let hasWeekly = false;
-    let resetsAt: number | null = null;
+    let fiveHourResetsAt: number | null = null;
+    let weeklyResetsAt: number | null = null;
     for (const itemRaw of modelRemains) {
       const item = asRecord(itemRaw);
       if (!item) continue;
@@ -161,7 +162,7 @@ export function mapMiniMaxQuota(value: unknown): Pick<
         const r = item.remains_time ?? item.current_interval_end_time;
         if (r != null) {
           const n = Number(r);
-          if (Number.isFinite(n) && n > 0) resetsAt = Math.floor(Date.now() / 1000) + n;
+          if (Number.isFinite(n) && n > 0) fiveHourResetsAt = Math.floor(Date.now() / 1000) + n;
         }
       }
       const wkPct = Number(item.current_weekly_remaining_percent);
@@ -177,14 +178,14 @@ export function mapMiniMaxQuota(value: unknown): Pick<
         if (Number.isFinite(weeklyStatus)) weekly.rateLimited = weeklyStatus === 0;
         hasWeekly = true;
         const r = item.weekly_remains_time ?? item.current_weekly_end_time;
-        if (r != null && resetsAt == null) {
+        if (r != null) {
           const n = Number(r);
-          if (Number.isFinite(n) && n > 0) resetsAt = Math.floor(Date.now() / 1000) + n;
+          if (Number.isFinite(n) && n > 0) weeklyResetsAt = Math.floor(Date.now() / 1000) + n;
         }
       }
     }
-    if (hasFiveHour) fiveHour.resetsAt = resetsAt;
-    if (hasWeekly) weekly.resetsAt = resetsAt;
+    if (hasFiveHour) fiveHour.resetsAt = fiveHourResetsAt;
+    if (hasWeekly) weekly.resetsAt = weeklyResetsAt;
     if (hasFiveHour || hasWeekly) {
       return {
         planLabel,
