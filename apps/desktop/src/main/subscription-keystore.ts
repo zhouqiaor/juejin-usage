@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-// main/subscription-keystore.ts — Electron safeStorage 加密凭据库
+// main/subscription-keystore.ts -- Electron safeStorage encrypted credential store
 import { safeStorage } from 'electron';
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 
@@ -18,46 +18,71 @@ export interface SubscriptionKeyStatus {
 export interface SubscriptionKeySaveResult { success: boolean; message: string; data?: SubscriptionKeyStatus[]; }
 
 const KEYSTORE_FILENAME = 'subscription-keys.enc.json';
+
 function keystorePath(): string { return join(app.getPath('userData'), KEYSTORE_FILENAME); }
+
 function encrypt(plain: string): string { return safeStorage.encryptString(plain).toString('base64'); }
 function decrypt(cipher: string): string { return safeStorage.decryptString(Buffer.from(cipher, 'base64')); }
 
+
 function readStore(): SubscriptionKeyStore | null {
   const p = keystorePath();
-  if (!existsSync(p)) return null;
+  if (!existsSync(p)) { return null; }
   try {
-    const cipherObj = JSON.parse(readFileSync(p, 'utf8')) as Record<string, string>;
-    const plainObj: Record<string, unknown> = {};
+    const raw = readFileSync(p, 'utf8');
+    const cipherObj = JSON.parse(raw) as Record<string, string>;
+    const out: SubscriptionKeyStore = {};
     for (const [k, v] of Object.entries(cipherObj)) {
-      try { plainObj[k] = decrypt(v as string); } catch { plainObj[k] = ''; }
+      try {
+        const decoded = decrypt(v);
+        const sep = k.indexOf('|');
+        if (sep < 0) continue;
+        const group = k.slice(0, sep);
+        const field = k.slice(sep + 1);
+        if (group === 'minimax') {
+          out.minimax = out.minimax ?? { apiKey: '' };
+          (out.minimax as Record<string, unknown>)[field] = decoded;
+        } else if (group === 'ark') {
+          out.ark = out.ark ?? { accessKeyId: '', secretAccessKey: '' };
+          (out.ark as Record<string, unknown>)[field] = decoded;
+        }
+      } catch (e) {
+        return null;
+      }
     }
-    return plainObj as unknown as SubscriptionKeyStore;
-  } catch { return null; }
+    return out;
+  } catch (e) {
+    return null;
+  }
 }
+
 function writeStore(store: SubscriptionKeyStore): void {
   const p = keystorePath();
+  // 嵌套对象 key（不再用点号字符串）
   const cipherObj: Record<string, string> = {};
   if (store.minimax) {
-    cipherObj['minimax.apiKey'] = encrypt(store.minimax.apiKey);
-    if (store.minimax.region) cipherObj['minimax.region'] = encrypt(store.minimax.region);
+    cipherObj['minimax|apiKey'] = encrypt(store.minimax.apiKey);
+    if (store.minimax.region) cipherObj['minimax|region'] = encrypt(store.minimax.region);
   }
   if (store.ark) {
-    cipherObj['ark.accessKeyId'] = encrypt(store.ark.accessKeyId);
-    cipherObj['ark.secretAccessKey'] = encrypt(store.ark.secretAccessKey);
-    if (store.ark.region) cipherObj['ark.region'] = encrypt(store.ark.region);
+    cipherObj['ark|accessKeyId'] = encrypt(store.ark.accessKeyId);
+    cipherObj['ark|secretAccessKey'] = encrypt(store.ark.secretAccessKey);
+    if (store.ark.region) cipherObj['ark|region'] = encrypt(store.ark.region);
   }
   writeFileSync(p, JSON.stringify(cipherObj), 'utf8');
 }
+
 function clearStore(): void {
   const p = keystorePath();
   if (existsSync(p)) writeFileSync(p, '{}', 'utf8');
 }
+
 function mask(s: string): string { return s.length <= 4 ? '****' : '****' + s.slice(-4); }
 
 function getEnvKeys(): SubscriptionKeyStore {
   return {
     minimax: (process.env.MINIMAX_API_KEY || process.env.MINIMAX_CODING_KEY)
-      ? { apiKey: process.env.MINIMAX_API_KEY ?? process.env.MINIMAX_CODING_KEY ?? '', region: (process.env.MINIMAX_REGION as 'auto'|'global'|'mainland') ?? 'auto' }
+      ? { apiKey: process.env.MINIMAX_API_KEY ?? process.env.MINIMAX_CODING_KEY ?? '', region: (process.env.MINIMAX_REGION as 'auto' | 'global' | 'mainland') ?? 'auto' }
       : undefined,
     ark: (process.env.VOLC_ACCESS_KEY_ID && process.env.VOLC_SECRET_ACCESS_KEY)
       ? { accessKeyId: process.env.VOLC_ACCESS_KEY_ID, secretAccessKey: process.env.VOLC_SECRET_ACCESS_KEY, region: process.env.VOLC_REGION }
@@ -77,26 +102,34 @@ export function getKeyStatus(): SubscriptionKeyStatus[] {
   else r.push({ plan: 'ark', source: 'none', masked: null, region: null });
   return r;
 }
+
 export function saveKeys(keys: SubscriptionKeyStore): SubscriptionKeySaveResult {
-  if (!safeStorage.isEncryptionAvailable()) return { success: false, message: '当前系统不支持安全加密存储，请改用环境变量方式配置凭据。' };
+  if (!safeStorage.isEncryptionAvailable()) {
+    return { success: false, message: '当前系统不支持安全加密存储，请改用环境变量方式配置凭据。' };
+  }
   const existing = readStore() ?? {};
   const merged: SubscriptionKeyStore = { minimax: keys.minimax ?? existing.minimax, ark: keys.ark ?? existing.ark };
   writeStore(merged);
   return { success: true, message: '凭据已保存。', data: getKeyStatus() };
 }
+
 export function clearKeys(plan: 'minimax' | 'ark'): SubscriptionKeySaveResult {
   const existing = readStore() ?? {};
-  if (plan === 'minimax') delete existing.minimax; else delete existing.ark;
-  if (Object.keys(existing).length === 0) clearStore(); else writeStore(existing);
-  return { success: true, message: `${plan === 'minimax' ? 'MiniMax' : '火山方舟'} 凭据已清除。`, data: getKeyStatus() };
+  if (plan === 'minimax') delete existing.minimax;
+  else delete existing.ark;
+  if (Object.keys(existing).length === 0) clearStore();
+  else writeStore(existing);
+  return { success: true, message: plan === 'minimax' ? 'MiniMax 凭据已清除。' : '火山方舟 凭据已清除。', data: getKeyStatus() };
 }
-export function resolveMiniMaxCredentials(): { token: string; region: 'auto'|'global'|'mainland' } | null {
+
+export function resolveMiniMaxCredentials(): { token: string; region: 'auto' | 'global' | 'mainland' } | null {
   const env = getEnvKeys();
   if (env.minimax) return { token: env.minimax.apiKey, region: env.minimax.region ?? 'auto' };
   const s = readStore();
-  if (s?.minimax) return { token: s.minimax.apiKey, region: (s.minimax.region as 'auto'|'global'|'mainland') ?? 'auto' };
+  if (s?.minimax) return { token: s.minimax.apiKey, region: (s.minimax.region as 'auto' | 'global' | 'mainland') ?? 'auto' };
   return null;
 }
+
 export function resolveArkCredentials(): { accessKeyId: string; secretAccessKey: string; region: string } | null {
   const env = getEnvKeys();
   if (env.ark) return { accessKeyId: env.ark.accessKeyId, secretAccessKey: env.ark.secretAccessKey, region: env.ark.region ?? 'cn-beijing' };

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // renderer/components/SubscriptionKeysSettings.tsx — Quota credentials settings panel
 import { useEffect, useState } from 'react';
-import { Button, Input, Label, TextField } from "@heroui/react";
+import { Button, Input, Label, TextField } from '@heroui/react';
 import { StatusBanner } from '@/components/StatusBanner';
 
 interface KeyStatus {
@@ -35,10 +35,8 @@ function SourceBadge({ source, masked }: { source: string; masked: string | null
 
 export function SubscriptionKeysSettings() {
   const [minimaxKey, setMinimaxKey] = useState('');
-  const [minimaxRegion, setMinimaxRegion] = useState('auto');
   const [arkAk, setArkAk] = useState('');
   const [arkSk, setArkSk] = useState('');
-  const [arkRegion, setArkRegion] = useState('cn-beijing');
   const [statuses, setStatuses] = useState<KeyStatus[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +44,7 @@ export function SubscriptionKeysSettings() {
 
   useEffect(() => {
     window.tud.getSubscriptionKeysStatus().then((r) => {
-      if (r.success && r.data) {
-        setStatuses(r.data);
-        const mm = r.data.find((s: KeyStatus) => s.plan === 'minimax');
-        const ak = r.data.find((s: KeyStatus) => s.plan === 'ark');
-        if (mm) setMinimaxRegion(mm.region ?? 'auto');
-        if (ak) setArkRegion(ak.region ?? 'cn-beijing');
-      }
+      if (r.success && r.data) setStatuses(r.data);
     });
   }, []);
 
@@ -61,14 +53,10 @@ export function SubscriptionKeysSettings() {
     setError(null);
     const keys: Parameters<typeof window.tud.saveSubscriptionKeys>[0] = {};
     const mmKey = minimaxKey.trim();
-    if (mmKey)
-      keys.minimax = {
-        apiKey: mmKey,
-        region: minimaxRegion as 'auto' | 'global' | 'mainland',
-      };
+    if (mmKey) keys.minimax = { apiKey: mmKey, region: 'auto' };
     const ak = arkAk.trim();
     const sk = arkSk.trim();
-    if (ak && sk) keys.ark = { accessKeyId: ak, secretAccessKey: sk, region: arkRegion };
+    if (ak && sk) keys.ark = { accessKeyId: ak, secretAccessKey: sk, region: 'cn-beijing' };
     window.tud
       .saveSubscriptionKeys(keys)
       .then((r: SaveResult) => {
@@ -116,23 +104,15 @@ export function SubscriptionKeysSettings() {
         Configure MiniMax Code and Volcengine Ark credentials. Keys are encrypted and stored locally, never sent to any server.
       </p>
 
-      {/* MiniMax */}
       <div className="rounded-medium border p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-sm font-medium">MiniMax Code</span>
           <SourceBadge source={mmStatus?.source ?? 'none'} masked={mmStatus?.masked ?? null} />
         </div>
         {mmIsEnv && (
-          <p className="mb-2 text-xs text-muted">Using environment variable. Clear env to enable editing.</p>
+          <p className="mb-2 text-xs text-muted">EnvVar priority. Clear env to edit.</p>
         )}
-        <TextField
-          fullWidth
-          isDisabled={mmIsEnv}
-          label="API Key"
-          type="password"
-          value={minimaxKey}
-          onValueChange={setMinimaxKey}
-        >
+        <TextField fullWidth isDisabled={mmIsEnv} name="minimax-key" type="password">
           <Label>API Key</Label>
           <Input
             autoComplete="off"
@@ -144,17 +124,15 @@ export function SubscriptionKeysSettings() {
             onChange={(e) => setMinimaxKey(e.target.value)}
           />
         </TextField>
-        
         <div className="mt-2 flex gap-2">
-          <Button isDisabled={saving} size="sm" onPress={onSave}>
+          <Button isDisabled={saving} size="sm" variant="primary" onPress={onSave}>
             Save
           </Button>
           {!mmIsEnv && mmStatus?.source === 'stored' && (
             <Button
-              color="danger"
-              isLoading={clearingPlan === 'minimax'}
+              isDisabled={clearingPlan === 'minimax'}
               size="sm"
-              variant="flat"
+              variant="danger"
               onPress={() => onClear('minimax')}
             >
               Clear
@@ -163,22 +141,15 @@ export function SubscriptionKeysSettings() {
         </div>
       </div>
 
-      {/* Ark */}
       <div className="rounded-medium border p-3">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-sm font-medium">Volcengine Ark</span>
           <SourceBadge source={arkStatus?.source ?? 'none'} masked={arkStatus?.masked ?? null} />
         </div>
         {arkIsEnv && (
-          <p className="mb-2 text-xs text-muted">Using environment variable. Clear env to enable editing.</p>
+          <p className="mb-2 text-xs text-muted">EnvVar priority. Clear env to edit.</p>
         )}
-        <TextField
-          fullWidth
-          isDisabled={arkIsEnv}
-          label="Access Key ID"
-          value={arkAk}
-          onValueChange={setArkAk}
-        >
+        <TextField fullWidth isDisabled={arkIsEnv} name="ark-ak">
           <Label>Access Key ID</Label>
           <Input
             autoComplete="off"
@@ -189,15 +160,7 @@ export function SubscriptionKeysSettings() {
             onChange={(e) => setArkAk(e.target.value)}
           />
         </TextField>
-        <TextField
-          className="mt-2"
-          fullWidth
-          isDisabled={arkIsEnv}
-          label="Secret Access Key"
-          type="password"
-          value={arkSk}
-          onValueChange={setArkSk}
-        >
+        <TextField className="mt-2" fullWidth isDisabled={arkIsEnv} name="ark-sk" type="password">
           <Label>Secret Access Key</Label>
           <Input
             autoComplete="off"
@@ -207,17 +170,15 @@ export function SubscriptionKeysSettings() {
             onChange={(e) => setArkSk(e.target.value)}
           />
         </TextField>
-        
         <div className="mt-2 flex gap-2">
-          <Button isDisabled={saving} size="sm" onPress={onSave}>
+          <Button isDisabled={saving} size="sm" variant="primary" onPress={onSave}>
             Save
           </Button>
           {!arkIsEnv && arkStatus?.source === 'stored' && (
             <Button
-              color="danger"
-              isLoading={clearingPlan === 'ark'}
+              isDisabled={clearingPlan === 'ark'}
               size="sm"
-              variant="flat"
+              variant="danger"
               onPress={() => onClear('ark')}
             >
               Clear
