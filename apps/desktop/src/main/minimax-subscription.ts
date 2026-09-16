@@ -211,7 +211,7 @@ async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubsc
     const snapshot: MiniMaxSubscriptionSnapshot = {
       status: 'ready',
       planLabel: mapped.planLabel,
-      region: credentials.region,
+      region: region,
       limits: mapped.limits,
       fetchedAt: Math.floor(Date.now() / 1_000),
       stale: false,
