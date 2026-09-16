@@ -93,6 +93,8 @@
     "src/shared/ark-credentials.ts",
     "src/shared/ark-credentials.test.ts",
     "src/shared/ark-error.ts",
-    "src/shared/ark-error.test.ts"
+    "src/shared/ark-error.test.ts",
+    "src/main/subscription-keystore.ts",
+    "src/main/subscription-keystore.test.ts"
   ]
 }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // main/subscription-keystore.ts -- Electron safeStorage encrypted credential store
 import { safeStorage } from 'electron';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { app } from 'electron';
 
@@ -24,60 +24,102 @@ function keystorePath(): string { return join(app.getPath('userData'), KEYSTORE_
 function encrypt(plain: string): string { return safeStorage.encryptString(plain).toString('base64'); }
 function decrypt(cipher: string): string { return safeStorage.decryptString(Buffer.from(cipher, 'base64')); }
 
+// ---- 诊断日志：仅记录原因，不泄露凭据明文/密文值（P1-③ 消除静默失败） ----
+function logKeystoreWarn(msg: string): void { console.warn(`[subscription-keystore] ${msg}`); }
+function logKeystoreError(msg: string, err?: unknown): void {
+  if (err instanceof Error) console.error(`[subscription-keystore] ${msg}: ${err.message}`);
+  else console.error(`[subscription-keystore] ${msg}`);
+}
+
+// safeStorage 是否可用：测试/未就绪/密钥被重置场景下可能不可用，须显式判定
+function isCryptoReady(): boolean {
+  if (typeof safeStorage === 'undefined' || typeof app === 'undefined') return false;
+  try { return safeStorage.isEncryptionAvailable(); } catch { return false; }
+}
+
+// ---- 纯函数层：便于单测，不依赖 electron / 文件系统 ----
+export type DecryptFn = (cipher: string) => string;
+
+export function serializeStore(store: SubscriptionKeyStore, encryptFn: (plain: string) => string): Record<string, string> {
+  const cipherObj: Record<string, string> = {};
+  if (store.minimax) {
+    cipherObj['minimax|apiKey'] = encryptFn(store.minimax.apiKey);
+    if (store.minimax.region) cipherObj['minimax|region'] = encryptFn(store.minimax.region);
+  }
+  if (store.ark) {
+    cipherObj['ark|accessKeyId'] = encryptFn(store.ark.accessKeyId);
+    cipherObj['ark|secretAccessKey'] = encryptFn(store.ark.secretAccessKey);
+    if (store.ark.region) cipherObj['ark|region'] = encryptFn(store.ark.region);
+  }
+  return cipherObj;
+}
+
+export interface ParseStoreResult { store: SubscriptionKeyStore; corruptFieldCount: number; }
+
+// 逐字段解密：单个字段损坏只跳过该字段并保留其余凭据（P1-① 容错）。
+// 注意：损坏字段必须保持「缺失(undefined)」而非初始化空串，否则会产生
+// secretAccessKey='' 这类半截凭据，被 resolveArkCredentials 当作有效值外发。
+export function parseStore(cipherObj: Record<string, string>, decryptFn: DecryptFn): ParseStoreResult {
+  const out: { minimax?: Record<string, string>; ark?: Record<string, string> } = {};
+  let corruptFieldCount = 0;
+  for (const [k, v] of Object.entries(cipherObj)) {
+    const sep = k.indexOf('|');
+    if (sep < 0) { corruptFieldCount++; continue; }
+    const group = k.slice(0, sep);
+    const field = k.slice(sep + 1);
+    if (group !== 'minimax' && group !== 'ark') { corruptFieldCount++; continue; }
+    try {
+      const decoded = decryptFn(v);
+      out[group] = out[group] ?? {};
+      out[group]![field] = decoded;
+    } catch {
+      corruptFieldCount++;
+    }
+  }
+  return { store: out as unknown as SubscriptionKeyStore, corruptFieldCount };
+}
+
+// 原子写：先写临时文件再 rename，避免中途崩溃留下截断文件导致全库凭据丢失（P1-②）
+export function atomicWriteFile(p: string, content: string): void {
+  const tmp = `${p}.tmp`;
+  writeFileSync(tmp, content, 'utf8');
+  renameSync(tmp, p);
+}
 
 function readStore(): SubscriptionKeyStore | null {
-  const p = keystorePath();
+  let p: string;
+  try { p = keystorePath(); } catch { return null; }
   if (!existsSync(p)) { return null; }
+  if (!isCryptoReady()) {
+    logKeystoreError('safeStorage 加密不可用，无法读取已保存凭据（OS 密钥链可能未就绪或被重置），已忽略存储凭据');
+    return null;
+  }
   try {
     const raw = readFileSync(p, 'utf8');
     const cipherObj = JSON.parse(raw) as Record<string, string>;
-    const out: SubscriptionKeyStore = {};
-    for (const [k, v] of Object.entries(cipherObj)) {
-      try {
-        const decoded = decrypt(v);
-        const sep = k.indexOf('|');
-        if (sep < 0) continue;
-        const group = k.slice(0, sep);
-        const field = k.slice(sep + 1);
-        if (group === 'minimax') {
-          out.minimax = out.minimax ?? { apiKey: '' };
-          (out.minimax as Record<string, unknown>)[field] = decoded;
-        } else if (group === 'ark') {
-          out.ark = out.ark ?? { accessKeyId: '', secretAccessKey: '' };
-          (out.ark as Record<string, unknown>)[field] = decoded;
-        }
-      } catch (e) {
-        return null;
-      }
+    const { store, corruptFieldCount } = parseStore(cipherObj, decrypt);
+    if (corruptFieldCount > 0) {
+      logKeystoreWarn(`凭据库存在 ${corruptFieldCount} 个无法解密的字段，已跳过损坏字段并保留其余凭据（可能因密钥重置导致）`);
     }
-    return out;
+    return store;
   } catch (e) {
+    logKeystoreError('凭据库文件损坏或无法解析，已忽略已保存的凭据', e);
     return null;
   }
 }
 
 function writeStore(store: SubscriptionKeyStore): void {
   const p = keystorePath();
-  // 嵌套对象 key（不再用点号字符串）
-  const cipherObj: Record<string, string> = {};
-  if (store.minimax) {
-    cipherObj['minimax|apiKey'] = encrypt(store.minimax.apiKey);
-    if (store.minimax.region) cipherObj['minimax|region'] = encrypt(store.minimax.region);
-  }
-  if (store.ark) {
-    cipherObj['ark|accessKeyId'] = encrypt(store.ark.accessKeyId);
-    cipherObj['ark|secretAccessKey'] = encrypt(store.ark.secretAccessKey);
-    if (store.ark.region) cipherObj['ark|region'] = encrypt(store.ark.region);
-  }
-  writeFileSync(p, JSON.stringify(cipherObj), 'utf8');
+  const cipherObj = serializeStore(store, encrypt);
+  atomicWriteFile(p, JSON.stringify(cipherObj));
 }
 
 function clearStore(): void {
   const p = keystorePath();
-  if (existsSync(p)) writeFileSync(p, '{}', 'utf8');
+  if (existsSync(p)) atomicWriteFile(p, '{}');
 }
 
-function mask(s: string): string { return s.length <= 4 ? '****' : '****' + s.slice(-4); }
+export function mask(s: string): string { return s.length <= 4 ? '****' : '****' + s.slice(-4); }
 
 function getEnvKeys(): SubscriptionKeyStore {
   return {
@@ -104,7 +146,7 @@ export function getKeyStatus(): SubscriptionKeyStatus[] {
 }
 
 export function saveKeys(keys: SubscriptionKeyStore): SubscriptionKeySaveResult {
-  if (!safeStorage.isEncryptionAvailable()) {
+  if (!isCryptoReady()) {
     return { success: false, message: '当前系统不支持安全加密存储，请改用环境变量方式配置凭据。' };
   }
   const existing = readStore() ?? {};
@@ -114,6 +156,9 @@ export function saveKeys(keys: SubscriptionKeyStore): SubscriptionKeySaveResult 
 }
 
 export function clearKeys(plan: 'minimax' | 'ark'): SubscriptionKeySaveResult {
+  if (!isCryptoReady()) {
+    return { success: false, message: '当前系统不支持安全加密存储，无法清除已保存的凭据。' };
+  }
   const existing = readStore() ?? {};
   if (plan === 'minimax') delete existing.minimax;
   else delete existing.ark;
