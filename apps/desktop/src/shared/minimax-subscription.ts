@@ -162,7 +162,9 @@ export function mapMiniMaxQuota(value: unknown): Pick<
         const r = item.remains_time ?? item.current_interval_end_time;
         if (r != null) {
           const n = Number(r);
-          if (Number.isFinite(n) && n > 0) fiveHourResetsAt = Math.floor(Date.now() / 1000) + n;
+          // [fork extension] Coding Plan 老 API：remains_time 永远是**毫秒**（实测值 14872049ms ≈ 4.13h），
+          // 永远除以 1000 转秒。
+          if (Number.isFinite(n) && n > 0) fiveHourResetsAt = Math.floor(Date.now() / 1000) + Math.floor(n / 1000);
         }
       }
       const wkPct = Number(item.current_weekly_remaining_percent);
@@ -180,7 +182,8 @@ export function mapMiniMaxQuota(value: unknown): Pick<
         const r = item.weekly_remains_time ?? item.current_weekly_end_time;
         if (r != null) {
           const n = Number(r);
-          if (Number.isFinite(n) && n > 0) weeklyResetsAt = Math.floor(Date.now() / 1000) + n;
+          // [fork extension] weekly_remains_time 同样是毫秒
+          if (Number.isFinite(n) && n > 0) weeklyResetsAt = Math.floor(Date.now() / 1000) + Math.floor(n / 1000);
         }
       }
     }
