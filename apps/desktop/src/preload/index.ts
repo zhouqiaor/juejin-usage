@@ -40,7 +40,7 @@ import type { ArkSubscriptionSnapshot } from '../shared/ark-subscription';
 import type {
   SubscriptionKeyStatus,
   SubscriptionKeySaveResult,
-  type SubscriptionKeyStore,
+  SubscriptionKeyStore,
 } from '../main/subscription-keystore';
 import {
   isPetSyncFeedback,

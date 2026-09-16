@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // main/subscription-keystore.ts — Electron safeStorage 加密凭据库
 import { safeStorage } from 'electron';
-import { existsSync, readFile, writeFile } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from 'node:path';
 import { app } from 'electron';
 
@@ -26,7 +26,7 @@ function readStore(): SubscriptionKeyStore | null {
   const p = keystorePath();
   if (!existsSync(p)) return null;
   try {
-    const cipherObj = JSON.parse(readFile(p, 'utf8')) as Record<string, string>;
+    const cipherObj = JSON.parse(readFileSync(p, 'utf8')) as Record<string, string>;
     const plainObj: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(cipherObj)) {
       try { plainObj[k] = decrypt(v as string); } catch { plainObj[k] = ''; }
@@ -46,11 +46,11 @@ function writeStore(store: SubscriptionKeyStore): void {
     cipherObj['ark.secretAccessKey'] = encrypt(store.ark.secretAccessKey);
     if (store.ark.region) cipherObj['ark.region'] = encrypt(store.ark.region);
   }
-  writeFile(p, JSON.stringify(cipherObj), 'utf8');
+  writeFileSync(p, JSON.stringify(cipherObj), 'utf8');
 }
 function clearStore(): void {
   const p = keystorePath();
-  if (existsSync(p)) writeFile(p, '{}', 'utf8');
+  if (existsSync(p)) writeFileSync(p, '{}', 'utf8');
 }
 function mask(s: string): string { return s.length <= 4 ? '****' : '****' + s.slice(-4); }
 

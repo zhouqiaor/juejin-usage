@@ -17,7 +17,7 @@ const OFFICIAL_MAINLAND_ORIGIN = 'https://api.minimaxi.com';
 
 interface MiniMaxCredentials {
   token: string;
-  region: 'global' | 'mainland';
+  region: 'global' | 'mainland' | 'auto';
 }
 
 let lastSuccess: MiniMaxSubscriptionSnapshot | null = null;

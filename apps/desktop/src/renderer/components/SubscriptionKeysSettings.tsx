@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // renderer/components/SubscriptionKeysSettings.tsx — Quota credentials settings panel
 import { useEffect, useState } from 'react';
-import { Alert, Button, Input, Label, Select, SelectItem, Tabs, TextField } from '@heroui/react';
+import { Button, Input, Label, TextField } from "@heroui/react";
 import { StatusBanner } from '@/components/StatusBanner';
 
 interface KeyStatus {
@@ -123,12 +123,7 @@ export function SubscriptionKeysSettings() {
           <SourceBadge source={mmStatus?.source ?? 'none'} masked={mmStatus?.masked ?? null} />
         </div>
         {mmIsEnv && (
-          <Alert
-            className="mb-2"
-            description="Using environment variable. Clear env to enable editing."
-            title="EnvVar"
-            variant="flat"
-          />
+          <p className="mb-2 text-xs text-muted">Using environment variable. Clear env to enable editing.</p>
         )}
         <TextField
           fullWidth
@@ -149,20 +144,9 @@ export function SubscriptionKeysSettings() {
             onChange={(e) => setMinimaxKey(e.target.value)}
           />
         </TextField>
-        <div className="mt-2">
-          <Select
-            isDisabled={mmIsEnv}
-            label="Region"
-            selectedKeys={new Set([minimaxRegion])}
-            onSelectionChange={(keys) => setMinimaxRegion(Array.from(keys)[0])}
-          >
-            <SelectItem key="auto">Auto detect</SelectItem>
-            <SelectItem key="global">Global (api.minimax.io)</SelectItem>
-            <SelectItem key="mainland">Mainland (api.minimaxi.com)</SelectItem>
-          </Select>
-        </div>
+        
         <div className="mt-2 flex gap-2">
-          <Button color="primary" isLoading={saving} size="sm" onPress={onSave}>
+          <Button isDisabled={saving} size="sm" onPress={onSave}>
             Save
           </Button>
           {!mmIsEnv && mmStatus?.source === 'stored' && (
@@ -186,12 +170,7 @@ export function SubscriptionKeysSettings() {
           <SourceBadge source={arkStatus?.source ?? 'none'} masked={arkStatus?.masked ?? null} />
         </div>
         {arkIsEnv && (
-          <Alert
-            className="mb-2"
-            description="Using environment variable. Clear env to enable editing."
-            title="EnvVar"
-            variant="flat"
-          />
+          <p className="mb-2 text-xs text-muted">Using environment variable. Clear env to enable editing.</p>
         )}
         <TextField
           fullWidth
@@ -228,19 +207,9 @@ export function SubscriptionKeysSettings() {
             onChange={(e) => setArkSk(e.target.value)}
           />
         </TextField>
-        <div className="mt-2">
-          <Select
-            isDisabled={arkIsEnv}
-            label="Region"
-            selectedKeys={new Set([arkRegion])}
-            onSelectionChange={(keys) => setArkRegion(Array.from(keys)[0])}
-          >
-            <SelectItem key="cn-beijing">cn-beijing</SelectItem>
-            <SelectItem key="cn-shanghai">cn-shanghai</SelectItem>
-          </Select>
-        </div>
+        
         <div className="mt-2 flex gap-2">
-          <Button color="primary" isLoading={saving} size="sm" onPress={onSave}>
+          <Button isDisabled={saving} size="sm" onPress={onSave}>
             Save
           </Button>
           {!arkIsEnv && arkStatus?.source === 'stored' && (
