@@ -51,6 +51,7 @@ import { DeepSeekSubscriptionCard } from './DeepSeekSubscriptionCard';
 import { OpenCodeSubscriptionCard } from './OpenCodeSubscriptionCard';
 import { TraeSubscriptionGroup } from './TraeSubscriptionGroup';
 import { WorkBuddySubscriptionGroup } from './WorkBuddySubscriptionGroup';
+import { SubscriptionOverviewSection } from './SubscriptionOverviewSection';
 import { DEFAULT_DASHBOARD_RANGE } from '../../shared/dashboard-range';
 import './TrayPopoverView.css';
 
@@ -403,21 +404,7 @@ export function TrayPopoverView() {
           <h1 className="text-md text-foreground">用量概览</h1>
           <ThemeToggle />
         </div>
-        <section aria-label="订阅额度" className="grid grid-cols-2 gap-2.5 empty:hidden">
-          <CodexSubscriptionCard />
-          <ClaudeSubscriptionCard />
-          <CursorSubscriptionCard />
-          <GrokSubscriptionCard />
-          <KimiSubscriptionCard />
-          <ZcodeSubscriptionCard />
-          <AntigravitySubscriptionCard />
-          <QoderSubscriptionCard />
-          <MiniMaxSubscriptionCard />
-          <OpenCodeSubscriptionCard />
-          <DeepSeekSubscriptionCard />
-          <WorkBuddySubscriptionGroup />
-          <TraeSubscriptionGroup />
-        </section>
+        <SubscriptionOverviewSection />
         <div className="flex min-w-0 items-center gap-2">
           <Tabs
             className="w-fit shrink-0 text-center"
