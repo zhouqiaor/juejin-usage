@@ -36,6 +36,7 @@ import type { DeepSeekSubscriptionSnapshot } from '../shared/deepseek-subscripti
 import type { OpenCodeSubscriptionSnapshot } from '../shared/opencode-subscription';
 import type { TraeSubscriptionSnapshot } from '../shared/trae-subscription';
 import type { WorkBuddySubscriptionSnapshot } from '../shared/workbuddy-subscription';
+import type { ArkSubscriptionSnapshot } from '../shared/ark-subscription';
 import type {
   SubscriptionKeyStatus,
   SubscriptionKeySaveResult,
@@ -89,6 +90,7 @@ const WORKBUDDY_MAINLAND_SUBSCRIPTION_GET_CHANNEL = 'workbuddy-mainland-subscrip
 const SUBSCRIPTION_KEYS_GET_STATUS_CHANNEL = 'subscription-keys:get-status';
 const SUBSCRIPTION_KEYS_SAVE_CHANNEL = 'subscription-keys:save';
 const SUBSCRIPTION_KEYS_CLEAR_CHANNEL = 'subscription-keys:clear';
+const ARK_SUBSCRIPTION_GET_CHANNEL = 'ark-subscription:get';
 
 type SettingsTabId = 'sync' | 'pet' | 'app' | 'plan';
 
@@ -184,6 +186,9 @@ const tudApi = {
 
   clearSubscriptionKeys: (plan: 'minimax' | 'ark'): Promise<SubscriptionKeySaveResult> =>
     ipcRenderer.invoke(SUBSCRIPTION_KEYS_CLEAR_CHANNEL, plan),
+
+  getArkSubscription: (options?: { forceRefresh?: boolean }): Promise<ArkSubscriptionSnapshot> =>
+    ipcRenderer.invoke(ARK_SUBSCRIPTION_GET_CHANNEL, options),
 
   /** Open http(s) in the OS default browser (掘金登录). */
   openExternal: (

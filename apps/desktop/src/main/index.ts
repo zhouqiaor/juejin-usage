@@ -41,6 +41,7 @@ import { registerOpenCodeSubscriptionIpc } from './opencode-subscription-ipc';
 import { registerTraeSubscriptionIpc } from './trae-subscription-ipc';
 import { registerWorkBuddySubscriptionIpc } from './workbuddy-subscription-ipc';
 import { registerSubscriptionKeysIpc } from './subscription-keys-ipc';
+import { registerArkSubscriptionIpc } from './ark-subscription-ipc';
 import {
   localApiRequest,
   pokeSyncOnForeground,
@@ -106,6 +107,7 @@ let disposeOpenCodeSubscriptionIpc: (() => void) | null = null;
 let disposeTraeSubscriptionIpc: (() => void) | null = null;
 let disposeWorkBuddySubscriptionIpc: (() => void) | null = null;
 let disposeSubscriptionKeysIpc: (() => void) | null = null;
+let disposeArkSubscriptionIpc: (() => void) | null = null;
 let currentThemeMode: ThemeMode = 'system';
 let currentTheme: Theme = 'light';
 let pendingDeepLinkUrl: string | null = null;
@@ -488,6 +490,7 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeTraeSubscriptionIpc = registerTraeSubscriptionIpc();
     disposeWorkBuddySubscriptionIpc = registerWorkBuddySubscriptionIpc();
     disposeSubscriptionKeysIpc = registerSubscriptionKeysIpc();
+    disposeArkSubscriptionIpc = registerArkSubscriptionIpc();
     try {
       await initAutostartOnLaunch();
     } catch (err) {
@@ -635,6 +638,8 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeWorkBuddySubscriptionIpc = null;
     disposeSubscriptionKeysIpc?.();
     disposeSubscriptionKeysIpc = null;
+    disposeArkSubscriptionIpc?.();
+    disposeArkSubscriptionIpc = null;
     disposeAutoUpdate();
   });
 });

@@ -82,6 +82,9 @@ declare global {
         ark?: { accessKeyId: string; secretAccessKey: string; region?: string };
       }) => Promise<{ success: boolean; message: string }>;
       clearSubscriptionKeys: (plan: 'minimax' | 'ark') => Promise<{ success: boolean; message: string }>;
+      getArkSubscription: (options?: { forceRefresh?: boolean }) => Promise<
+        import('../shared/ark-subscription').ArkSubscriptionSnapshot
+      >;
       openExternal: (
         url: string,
       ) => Promise<{ ok: boolean; message?: string }>;
