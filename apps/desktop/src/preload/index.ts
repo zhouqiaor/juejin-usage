@@ -36,6 +36,11 @@ import type { DeepSeekSubscriptionSnapshot } from '../shared/deepseek-subscripti
 import type { OpenCodeSubscriptionSnapshot } from '../shared/opencode-subscription';
 import type { TraeSubscriptionSnapshot } from '../shared/trae-subscription';
 import type { WorkBuddySubscriptionSnapshot } from '../shared/workbuddy-subscription';
+import type {
+  SubscriptionKeyStatus,
+  SubscriptionKeySaveResult,
+  type SubscriptionKeyStore,
+} from '../main/subscription-keystore';
 import {
   isPetSyncFeedback,
   type PetSyncFeedback,
@@ -81,8 +86,11 @@ const TRAE_GLOBAL_SUBSCRIPTION_GET_CHANNEL = 'trae-global-subscription:get';
 const TRAE_CN_SUBSCRIPTION_GET_CHANNEL = 'trae-cn-subscription:get';
 const WORKBUDDY_GLOBAL_SUBSCRIPTION_GET_CHANNEL = 'workbuddy-global-subscription:get';
 const WORKBUDDY_MAINLAND_SUBSCRIPTION_GET_CHANNEL = 'workbuddy-mainland-subscription:get';
+const SUBSCRIPTION_KEYS_GET_STATUS_CHANNEL = 'subscription-keys:get-status';
+const SUBSCRIPTION_KEYS_SAVE_CHANNEL = 'subscription-keys:save';
+const SUBSCRIPTION_KEYS_CLEAR_CHANNEL = 'subscription-keys:clear';
 
-type SettingsTabId = 'sync' | 'pet' | 'app';
+type SettingsTabId = 'sync' | 'pet' | 'app' | 'plan';
 
 type PetAnimation = 'idle' | 'running-left' | 'running-right';
 
@@ -168,6 +176,14 @@ const tudApi = {
   getWorkBuddyMainlandSubscription: (options?: { forceRefresh?: boolean }): Promise<WorkBuddySubscriptionSnapshot> =>
     ipcRenderer.invoke(WORKBUDDY_MAINLAND_SUBSCRIPTION_GET_CHANNEL, options),
 
+  getSubscriptionKeysStatus: (): Promise<{ success: boolean; message: string; data: SubscriptionKeyStatus[] }> =>
+    ipcRenderer.invoke(SUBSCRIPTION_KEYS_GET_STATUS_CHANNEL),
+
+  saveSubscriptionKeys: (keys: SubscriptionKeyStore): Promise<SubscriptionKeySaveResult> =>
+    ipcRenderer.invoke(SUBSCRIPTION_KEYS_SAVE_CHANNEL, keys),
+
+  clearSubscriptionKeys: (plan: 'minimax' | 'ark'): Promise<SubscriptionKeySaveResult> =>
+    ipcRenderer.invoke(SUBSCRIPTION_KEYS_CLEAR_CHANNEL, plan),
 
   /** Open http(s) in the OS default browser (掘金登录). */
   openExternal: (

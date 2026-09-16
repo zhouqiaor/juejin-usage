@@ -72,6 +72,16 @@ declare global {
       getWorkBuddyMainlandSubscription: (options?: { forceRefresh?: boolean }) => Promise<
         import('../shared/workbuddy-subscription').WorkBuddySubscriptionSnapshot
       >;
+      getSubscriptionKeysStatus: () => Promise<{
+        success: boolean;
+        message: string;
+        data: Array<{ plan: 'minimax' | 'ark'; source: 'env' | 'stored' | 'none'; masked: string | null; region?: string | null }>;
+      }>;
+      saveSubscriptionKeys: (keys: {
+        minimax?: { apiKey: string; region?: 'auto' | 'global' | 'mainland' };
+        ark?: { accessKeyId: string; secretAccessKey: string; region?: string };
+      }) => Promise<{ success: boolean; message: string }>;
+      clearSubscriptionKeys: (plan: 'minimax' | 'ark') => Promise<{ success: boolean; message: string }>;
       openExternal: (
         url: string,
       ) => Promise<{ ok: boolean; message?: string }>;

@@ -39,6 +39,7 @@ import { AboutContent } from '@/components/AboutContent';
 import { JuejinLoginConsentModal } from '@/components/JuejinLoginConsentModal';
 import { PetSelectPreview } from '@/components/PetSelectPreview';
 import { StatusBanner } from '@/components/StatusBanner';
+import { SubscriptionKeysSettings } from '@/components/SubscriptionKeysSettings';
 
 import {
   OPEN_SETTINGS_EVENT,
@@ -54,6 +55,7 @@ const TAB_ITEMS: { id: DesktopSettingsTabId; label: string }[] = [
   { id: 'sync', label: '云端同步' },
   { id: 'app', label: '应用' },
   { id: 'about', label: '关于' },
+  { id: 'plan', label: '余量凭证' },
 ];
 
 /** Gitee README section: 桌面宠物（自定义宠物包用法）. */
@@ -261,6 +263,13 @@ export function SettingsPanel({
           {tab === 'about' && (
             <div className="h-full overflow-y-auto pr-1">
               <AboutContent />
+            </div>
+          )}
+        </Tabs.Panel>
+        <Tabs.Panel className="h-[50vh] overflow-hidden p-4 text-left" id="plan">
+          {tab === 'plan' && (
+            <div className="h-full overflow-y-auto pr-1">
+              <SubscriptionKeysSettings />
             </div>
           )}
         </Tabs.Panel>

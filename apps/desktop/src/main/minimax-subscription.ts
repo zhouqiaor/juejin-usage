@@ -6,6 +6,8 @@ import {
   mapMiniMaxQuota,
   type MiniMaxSubscriptionSnapshot,
 } from '../shared/minimax-subscription';
+// [fork extension] keystore: env + safeStorage fallback for desktop app key entry
+import { resolveMiniMaxCredentials } from './subscription-keystore';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 60_000;
@@ -104,6 +106,10 @@ function detectRegion(token: string): 'global' | 'mainland' {
 }
 
 async function readLocalCredentials(): Promise<MiniMaxCredentials | null> {
+  // [fork extension] keystore: env (MINIMAX_API_KEY/CODING_KEY) + safeStorage stored keys
+  const fromKeystore = resolveMiniMaxCredentials();
+  if (fromKeystore) return fromKeystore;
+
   const home = minimaxCodeHome();
   const candidates = [
     path.join(home, 'credentials.json'),
@@ -182,7 +188,8 @@ async function fetchFreshMiniMaxSubscription(): Promise<MiniMaxSubscriptionSnaps
 }
 
 async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubscriptionSnapshot> {
-  const origin = originForRegion(credentials.region);
+  const region = credentials.region === 'auto' ? detectRegion(credentials.token) : credentials.region;
+  const origin = originForRegion(region);
   try {
     const response = await fetchJson(origin, credentials.token);
     if (response.status === 401 || response.status === 403) {
