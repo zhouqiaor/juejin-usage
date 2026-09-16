@@ -14,6 +14,12 @@ export interface MiniMaxRateLimitWindow {
   usedPercent: number;
   /** Unix timestamp in seconds. */
   resetsAt: number | null;
+  // [fork extension] Coding Plan 老 API 透出更多字段
+  totalCount?: number;
+  usedCount?: number;
+  modelName?: string;
+  /** 限流状态（API status 字段：1=正常/0=被限） */
+  rateLimited?: boolean;
 }
 
 export interface MiniMaxSubscriptionSnapshot {
@@ -142,6 +148,15 @@ export function mapMiniMaxQuota(value: unknown): Pick<
       const fiveHrPct = Number(item.current_interval_remaining_percent);
       if (Number.isFinite(fiveHrPct) && !hasFiveHour) {
         fiveHour.usedPercent = Math.max(0, Math.min(100, 100 - fiveHrPct));
+        // [fork extension] 透出总配额 + 已用次数 + model + 限流态
+        const total = Number(item.current_interval_total_count);
+        const used = Number(item.current_interval_usage_count);
+        if (Number.isFinite(total)) fiveHour.totalCount = total;
+        if (Number.isFinite(used)) fiveHour.usedCount = used;
+        const modelName = String(item.model_name ?? '');
+        if (modelName) fiveHour.modelName = modelName;
+        const intervalStatus = Number(item.current_interval_status);
+        if (Number.isFinite(intervalStatus)) fiveHour.rateLimited = intervalStatus === 0;
         hasFiveHour = true;
         const r = item.remains_time ?? item.current_interval_end_time;
         if (r != null) {
@@ -152,6 +167,14 @@ export function mapMiniMaxQuota(value: unknown): Pick<
       const wkPct = Number(item.current_weekly_remaining_percent);
       if (Number.isFinite(wkPct) && !hasWeekly) {
         weekly.usedPercent = Math.max(0, Math.min(100, 100 - wkPct));
+        const wTotal = Number(item.current_weekly_total_count);
+        const wUsed = Number(item.current_weekly_usage_count);
+        if (Number.isFinite(wTotal)) weekly.totalCount = wTotal;
+        if (Number.isFinite(wUsed)) weekly.usedCount = wUsed;
+        const wModel = String(item.model_name ?? '');
+        if (wModel && !weekly.modelName) weekly.modelName = wModel;
+        const weeklyStatus = Number(item.current_weekly_status);
+        if (Number.isFinite(weeklyStatus)) weekly.rateLimited = weeklyStatus === 0;
         hasWeekly = true;
         const r = item.weekly_remains_time ?? item.current_weekly_end_time;
         if (r != null && resetsAt == null) {

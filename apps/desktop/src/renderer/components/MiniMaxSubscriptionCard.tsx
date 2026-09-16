@@ -1,10 +1,15 @@
+// SPDX-License-Identifier: MIT
+// renderer/components/MiniMaxSubscriptionCard.tsx — fork 扩展版
+// 在上游基础上加：reset 倒计时、quota 数字（已用/总）、model 名、限流 badge、刷新事件
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   miniMaxRemainingPercent,
+  type MiniMaxRateLimitWindow,
   type MiniMaxSubscriptionSnapshot,
 } from '../../shared/minimax-subscription';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
 
 const INITIAL_SNAPSHOT: MiniMaxSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -16,17 +21,40 @@ const INITIAL_SNAPSHOT: MiniMaxSubscriptionSnapshot = {
   message: null,
 };
 
-/** Compact local MiniMax Code Coding Plan allowance summary for the macOS tray. */
+/** Unix 秒时间戳 → "X 分钟/小时/天后重置" */
+function formatReset(resetsAt: number | null, now: number): string {
+  if (!resetsAt) return '';
+  const sec = resetsAt - now;
+  if (sec <= 0) return '即将重置';
+  if (sec < 60) return `${sec} 秒后重置`;
+  if (sec < 3600) return `${Math.round(sec / 60)} 分钟后重置`;
+  if (sec < 86400) return `${Math.round(sec / 3600)} 小时后重置`;
+  const d = Math.round(sec / 86400);
+  const h = Math.round((sec - d * 86400) / 3600);
+  return h > 0 ? `${d} 天 ${h} 小时后重置` : `${d} 天后重置`;
+}
+
+/** 形如 1234 / 1.2k / 1.2M */
+function formatCount(n: number | undefined): string {
+  if (n == null || !Number.isFinite(n)) return '';
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`;
+}
+
 export function MiniMaxSubscriptionCard() {
   const [snapshot, setSnapshot] = useState<MiniMaxSubscriptionSnapshot>(INITIAL_SNAPSHOT);
   const [loading, setLoading] = useState(true);
+  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const requestInFlight = useRef(false);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (force = false) => {
     if (requestInFlight.current) return;
     requestInFlight.current = true;
     try {
-      setSnapshot(await window.tud.getMiniMaxSubscription());
+      const snap = await window.tud.getMiniMaxSubscription(force ? { forceRefresh: true } : undefined);
+      setSnapshot(snap);
+      setNow(Math.floor(Date.now() / 1000));
     } catch {
       setSnapshot({ ...INITIAL_SNAPSHOT, message: '暂时无法读取 MiniMax Code 订阅信息' });
     } finally {
@@ -37,28 +65,53 @@ export function MiniMaxSubscriptionCard() {
 
   useEffect(() => {
     void reload();
-    const onFocus = () => void reload();
+    const onFocus = () => void reload(true);
+    const onRefresh = () => void reload(true);
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    window.addEventListener(SUBSCRIPTION_REFRESH_EVENT, onRefresh);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener(SUBSCRIPTION_REFRESH_EVENT, onRefresh);
+    };
   }, [reload]);
 
-  const title = snapshot.region === 'mainland'
-    ? 'Minimax CN'
-    : snapshot.region === 'global'
-      ? 'Minimax'
-      : 'Minimax';
+  // reset 倒计时每 30s 重算一次（避免 stale 文案）
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const titleText = snapshot.region === 'mainland' ? 'Minimax CN' : snapshot.region === 'global' ? 'Minimax' : 'Minimax';
+
+  const rateLimited = snapshot.limits.some((l) => l.rateLimited);
+  const models = Array.from(new Set(snapshot.limits.map((l) => l.modelName).filter(Boolean) as string[]));
+  const titleSuffix = [
+    rateLimited ? '· 限流' : '',
+    models.length > 0 ? `· ${models.join('/')}` : '',
+  ].filter(Boolean).join(' ');
+  const fullTitle = titleSuffix ? `${titleText} ${titleSuffix}` : titleText;
+
+  const metrics = snapshot.limits.map((limit: MiniMaxRateLimitWindow, index) => {
+    const resetText = formatReset(limit.resetsAt, now);
+    const quotaText = limit.totalCount != null && limit.usedCount != null
+      ? `${formatCount(limit.usedCount)}/${formatCount(limit.totalCount)}`
+      : '';
+    const valueText = [quotaText, resetText].filter(Boolean).join(' · ') || undefined;
+    return {
+      color: index === 0 && snapshot.limits.length > 1 ? '#ff6a00' : '#2b7eff',
+      label: snapshot.stale && index === 0 ? `${limit.label} 旧` : limit.label,
+      remainingPercent: miniMaxRemainingPercent(limit.usedPercent),
+      valueText,
+    };
+  });
 
   return (
     <SubscriptionUsageCard
       data={{
         icon: <SubscriptionBrandIcon brand="minimax" />,
-        metrics: snapshot.limits.map((limit, index) => ({
-          color: index === 0 && snapshot.limits.length > 1 ? '#ff6a00' : '#2b7eff',
-          label: limit.label,
-          remainingPercent: miniMaxRemainingPercent(limit.usedPercent),
-        })),
+        metrics,
         stale: snapshot.stale,
-        title,
+        title: fullTitle,
       }}
       loading={loading}
     />

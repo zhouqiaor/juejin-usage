@@ -2,6 +2,7 @@
 // renderer/components/ArkSubscriptionCard.tsx -- Single-card tray component
 import { useEffect, useRef, useState } from 'react';
 import { SubscriptionUsageCard, type SubscriptionUsageCardData, } from './SubscriptionUsageCard';
+import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
 
 function arkRemaining(usedPercent: number): number {
   return Math.max(0, Math.min(100, Math.round((100 - usedPercent) * 100) / 100));
@@ -14,11 +15,11 @@ export function ArkSubscriptionCard() {
 
   useEffect(() => {
     let cancelled = false;
-    const fetchData = async () => {
+    const fetchData = async (force = false) => {
       if (inFlight.current) return;
       inFlight.current = true;
       try {
-        const snapshot = await window.tud.getArkSubscription();
+        const snapshot = await window.tud.getArkSubscription(force ? { forceRefresh: true } : undefined);
         if (cancelled) return;
         if (snapshot.status === 'ready' && snapshot.limits.length > 0) {
           const sorted = [...snapshot.limits].sort((a, b) => {
@@ -47,11 +48,14 @@ export function ArkSubscriptionCard() {
       }
     };
     void fetchData();
-    const onFocus = () => void fetchData();
+    const onFocus = () => void fetchData(true);
     window.addEventListener('focus', onFocus);
+    const onRefresh = () => void fetchData(true);
+    window.addEventListener(SUBSCRIPTION_REFRESH_EVENT, onRefresh);
     return () => {
       cancelled = true;
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener(SUBSCRIPTION_REFRESH_EVENT, onRefresh);
     };
   }, []);
 
