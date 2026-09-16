@@ -18,6 +18,13 @@ import {
   type DashboardRange,
 } from '../shared/dashboard-range';
 import { isThemeMode, type ThemeMode } from '../shared/theme';
+import { isQuotaAlertThreshold, type QuotaAlertThreshold } from '../shared/pet-quota-alert';
+
+export type QuotaBubbleMode = 'off' | 'periodic' | 'persistent';
+
+export function isQuotaBubbleMode(value: unknown): value is QuotaBubbleMode {
+  return value === 'off' || value === 'periodic' || value === 'persistent';
+}
 
 const AUTOSTART_GET_CHANNEL = 'autostart:get';
 const AUTOSTART_SET_CHANNEL = 'autostart:set';
@@ -41,6 +48,16 @@ export interface DesktopPetPref {
   syncFeedbackEnabled: boolean;
   /** How long the sync toast stays visible, in seconds. */
   syncFeedbackDurationSec: number;
+  /** 额度气泡：关闭 / 周期弹出 / 常驻。 */
+  quotaBubbleMode: QuotaBubbleMode;
+  /** 周期弹出间隔（分钟），1–60。 */
+  quotaBubbleIntervalMin: number;
+  /** 套餐阈值跳动告警开关。 */
+  quotaAlertEnabled: boolean;
+  /** 触发阈值（百分比），仅允许 80 / 90 / 95。 */
+  quotaAlertThreshold: QuotaAlertThreshold;
+  /** 同一窗口两次告警的最小间隔（分钟），5–360。 */
+  quotaAlertCooldownMin: number;
 }
 
 export const DEFAULT_DESKTOP_PET_SCALE = 0.5;
@@ -49,6 +66,11 @@ export const DEFAULT_DESKTOP_PET_AUTO_MOVE_ENABLED = true;
 export const DEFAULT_DESKTOP_PET_AUTO_MOVE_INTERVAL_MINUTES = 2;
 export const DEFAULT_DESKTOP_PET_SYNC_FEEDBACK_ENABLED = false;
 export const DEFAULT_DESKTOP_PET_SYNC_FEEDBACK_DURATION_SEC = 3;
+export const DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_MODE: QuotaBubbleMode = 'off';
+export const DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN = 5;
+export const DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED = false;
+export const DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD: QuotaAlertThreshold = 90;
+export const DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN = 30;
 
 interface DesktopPrefs {
   openAtLogin: boolean;
@@ -121,6 +143,29 @@ async function readPrefsFile(): Promise<DesktopPrefs | null> {
             )
               ? desktopPet.syncFeedbackDurationSec
               : DEFAULT_DESKTOP_PET_SYNC_FEEDBACK_DURATION_SEC,
+            quotaBubbleMode: isQuotaBubbleMode(desktopPet.quotaBubbleMode)
+              ? desktopPet.quotaBubbleMode
+              : DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_MODE,
+            quotaBubbleIntervalMin: isBoundedInteger(
+              desktopPet.quotaBubbleIntervalMin,
+              1,
+              60,
+            )
+              ? desktopPet.quotaBubbleIntervalMin
+              : DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN,
+            quotaAlertEnabled: typeof desktopPet.quotaAlertEnabled === 'boolean'
+              ? desktopPet.quotaAlertEnabled
+              : DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED,
+            quotaAlertThreshold: isQuotaAlertThreshold(desktopPet.quotaAlertThreshold)
+              ? desktopPet.quotaAlertThreshold
+              : DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD,
+            quotaAlertCooldownMin: isBoundedInteger(
+              desktopPet.quotaAlertCooldownMin,
+              5,
+              360,
+            )
+              ? desktopPet.quotaAlertCooldownMin
+              : DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN,
           }
         : undefined,
     };
@@ -254,6 +299,11 @@ export async function loadDesktopPetPref(): Promise<DesktopPetPref> {
     autoMoveIntervalMinutes: DEFAULT_DESKTOP_PET_AUTO_MOVE_INTERVAL_MINUTES,
     syncFeedbackEnabled: DEFAULT_DESKTOP_PET_SYNC_FEEDBACK_ENABLED,
     syncFeedbackDurationSec: DEFAULT_DESKTOP_PET_SYNC_FEEDBACK_DURATION_SEC,
+    quotaBubbleMode: DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_MODE,
+    quotaBubbleIntervalMin: DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN,
+    quotaAlertEnabled: DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED,
+    quotaAlertThreshold: DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD,
+    quotaAlertCooldownMin: DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN,
   };
 }
 
@@ -289,6 +339,10 @@ function isDesktopPetAutoMoveInterval(value: unknown): value is number {
 
 function isDesktopPetSyncFeedbackDuration(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 10;
+}
+
+function isBoundedInteger(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 }
 
 /** First launch: enable + register. Later: re-apply stored preference. */

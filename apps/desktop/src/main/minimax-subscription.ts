@@ -22,6 +22,11 @@ interface MiniMaxCredentials {
 
 let lastSuccess: MiniMaxSubscriptionSnapshot | null = null;
 let requestInFlight: Promise<MiniMaxSubscriptionSnapshot> | null = null;
+// [fork extension] 记忆区：任一区成功后记住，下轮首跳直接打记忆区，避免每轮跨区废跳
+let lastGoodRegion: 'global' | 'mainland' | null = null;
+// [fork extension] 记忆区连续失败计数：达到上限后清除记忆，回落 detectRegion 启发式
+const MEMORY_REGION_FAILURE_LIMIT = 2;
+let memoryRegionFailures = 0;
 
 function expandHome(value: string): string {
   if (value === '~') return homedir();
@@ -166,8 +171,8 @@ async function fetchJson(
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
   const text = await response.text();
-  // [fork dev] 诊断：写 raw 响应到 main log（临时，下次 dev:desktop 重启时生效）
-  console.log(`[minimax-subscription] fetch ${origin}/v1/token_plan/remains status=${response.status} body=${text.slice(0, 500)}`);
+  // [fork] 诊断只保留 origin/status，不打印响应体（可能含账号信息）与 token
+  console.log(`[minimax-subscription] fetch ${origin} status=${response.status}`);
   let value: unknown = null;
   try { value = text ? JSON.parse(text) : null; } catch {}
   return { ok: response.ok, status: response.status, value };
@@ -193,7 +198,30 @@ async function fetchFreshMiniMaxSubscription(): Promise<MiniMaxSubscriptionSnaps
 }
 
 async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubscriptionSnapshot> {
-  const region = credentials.region === 'auto' ? detectRegion(credentials.token) : credentials.region;
+  const heuristicRegion = credentials.region === 'auto' ? detectRegion(credentials.token) : credentials.region;
+  // [fork extension] auto 模式下记忆区优先首跳（显式指定 region 仍以用户选择为准）
+  const usedMemoryRegion = credentials.region === 'auto' && lastGoodRegion !== null;
+  const region = credentials.region === 'auto' && lastGoodRegion ? lastGoodRegion : heuristicRegion;
+  const snapshot = await attemptFetchQuota(credentials, region);
+  // [fork extension] 仅 auto 模式维护记忆区：成功清零；记忆区连续失败 N 次则清记忆回落启发式
+  if (credentials.region === 'auto') {
+    if (snapshot.status === 'ready' && !snapshot.stale) {
+      memoryRegionFailures = 0;
+    } else if (usedMemoryRegion) {
+      memoryRegionFailures += 1;
+      if (memoryRegionFailures >= MEMORY_REGION_FAILURE_LIMIT) {
+        lastGoodRegion = null;
+        memoryRegionFailures = 0;
+      }
+    }
+  }
+  return snapshot;
+}
+
+async function attemptFetchQuota(
+  credentials: MiniMaxCredentials,
+  region: 'global' | 'mainland',
+): Promise<MiniMaxSubscriptionSnapshot> {
   const origin = originForRegion(region);
   try {
     const response = await fetchJson(origin, credentials.token);
@@ -225,7 +253,7 @@ async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubsc
           // [fork extension] 直接看 mapped2.limits：base_resp 不一定存在（Coding Plan 老 API）
           const mapped2 = mapMiniMaxQuota(r2.value);
           if (mapped2.limits.length > 0) {
-            return {
+            const snapshot: MiniMaxSubscriptionSnapshot = {
               status: 'ready',
               planLabel: mapped2.planLabel,
               region: otherRegion,
@@ -234,11 +262,17 @@ async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubsc
               stale: false,
               message: null,
             };
+            lastSuccess = snapshot;
+            lastGoodRegion = otherRegion;
+            return snapshot;
           }
-          // 仍失败，提示两区都不通
-          return unavailable('expired', `MiniMax 返回错误 ${code}: ${msg}（自动尝试 ${otherRegion} 也失败）`);
+          // 仍失败：与单跳网络失败同语义，优先返回 lastSuccess 旧数据（stale），无缓存才 unavailable
+          return staleFallback(`MiniMax 返回错误 ${code}: ${msg}（自动尝试 ${otherRegion} 也失败）`);
         } catch (e2) {
-          return unavailable('expired', `MiniMax 返回错误 ${code}: ${msg}（${otherRegion} 网络异常）`);
+          // [fork dev] 诊断：二区重试此前静默吞错，补一条低频错误日志
+          const e2msg = e2 instanceof Error ? `${e2.name}: ${e2.message}` : String(e2);
+          console.error(`[minimax-subscription] cross-region retry ${otherOrigin} FAIL: ${e2msg}`);
+          return staleFallback(`MiniMax 返回错误 ${code}: ${msg}（${otherRegion} 网络异常）`);
         }
       }
       return unavailable('expired', `MiniMax 返回错误 ${code}: ${msg}`);
@@ -257,6 +291,7 @@ async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubsc
       message: null,
     };
     lastSuccess = snapshot;
+    lastGoodRegion = region;
     return snapshot;
   } catch (e) {
     // [fork dev] 诊断：记录实际 fetch 错误
@@ -288,3 +323,11 @@ export async function readMiniMaxSubscription(
 }
 
 export { readOpenCodeAuth as readMiniMaxOpenCodeAuth, readLocalCredentials as readMiniMaxLocalCredentials };
+
+// [fork test] 清空模块级缓存/记忆区，仅供 node:test 使用
+export function _resetMiniMaxForTest(): void {
+  lastSuccess = null;
+  lastGoodRegion = null;
+  memoryRegionFailures = 0;
+  requestInFlight = null;
+}

@@ -13,12 +13,13 @@ function uriEncode(s: string): string {
   return encodeURIComponent(s).replace(/[!*'()]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
 }
 
-export function arkCanonicalQuery(action: string, region: string): string {
+export function arkCanonicalQuery(action: string, region: string, extra?: Record<string, string>): string {
   const pairs: Array<[string, string]> = [
     ['Action', action],
     ['Region', region],
     ['Version', ARK_API_VERSION],
   ];
+  if (extra) for (const [k, v] of Object.entries(extra)) pairs.push([k, v]);
   pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return pairs.map(([k, v]) => `${uriEncode(k)}=${uriEncode(v)}`).join('&');
 }
@@ -36,12 +37,13 @@ export function signArk(
   action: string,
   body: Buffer,
   now: Date = new Date(),
+  extraQuery?: Record<string, string>,
 ): ArkSignResult {
   const xDate = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const shortDate = xDate.slice(0, 8);
   const xSha = createHash('sha256').update(body).digest('hex');
   const canonicalHeaders = `host:${ARK_HOST}\nx-date:${xDate}\nx-content-sha256:${xSha}\ncontent-type:${ARK_CONTENT_TYPE}\n`;
-  const query = arkCanonicalQuery(action, region);
+  const query = arkCanonicalQuery(action, region, extraQuery);
   const canonicalRequest = `POST\n/\n${query}\n${canonicalHeaders}\n${ARK_SIGNED_HEADERS}\n${xSha}`;
   const scope = `${shortDate}/${region}/${ARK_SERVICE}/request`;
   const sts = `${ARK_ALG_PREFIX}\n${xDate}\n${scope}\n${createHash('sha256').update(canonicalRequest).digest('hex')}`;

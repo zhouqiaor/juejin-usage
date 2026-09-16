@@ -214,3 +214,90 @@ export function miniMaxRemainingPercent(usedPercent: number): number {
   if (!Number.isFinite(usedPercent)) return 0;
   return Math.min(100, Math.max(0, 100 - usedPercent));
 }
+
+/**
+ * Right-column value for a MiniMax window: REMAINING percentage rounded to a
+ * whole number — the same 口径 as the other 14 subscription cards
+ * (SubscriptionUsageCard defaults valueText to `${remainingPercent}%`, its aria
+ * label says 剩余, and the bar fills by remainingPercent). Input is the
+ * window's `usedPercent`; {@link miniMaxRemainingPercent} performs the single
+ * 100-used conversion, so callers must not convert again. Falls back to '--'
+ * when the percent is missing/non-finite instead of rendering a misleading
+ * '0%' (the coding_plan/remains count fields are always 0, so percent is the
+ * only informative signal — see Android parseMinimax).
+ */
+export function miniMaxRemainingPercentText(usedPercent: number): string {
+  if (!Number.isFinite(usedPercent)) return '--';
+  return `${Math.round(miniMaxRemainingPercent(usedPercent))}%`;
+}
+
+/**
+ * Counts are secondary info and trustworthy only when BOTH sides are real
+ * positive numbers; coding_plan/remains otherwise emits 0/0/null, which must
+ * never occupy the value column.
+ */
+export function miniMaxHasRealCount(
+  window: Pick<MiniMaxRateLimitWindow, 'usedCount' | 'totalCount'>,
+): boolean {
+  const { usedCount, totalCount } = window;
+  return typeof usedCount === 'number'
+    && Number.isFinite(usedCount)
+    && usedCount > 0
+    && typeof totalCount === 'number'
+    && Number.isFinite(totalCount)
+    && totalCount > 0;
+}
+
+/**
+ * Statuses that mean the local credentials themselves are invalid: the user
+ * must re-login / replace the key. An empty snapshot in any of these states
+ * must never be masked by a stale previous snapshot.
+ * - 'expired': 401/403 or API-level error (base_resp.status_code != 0)
+ * - 'not-signed-in': no credentials found on disk / keystore
+ * - 'unsupported-account': credential type not supported (e.g. BYOK / pay-as-you-go)
+ * 'not-installed' / 'custom-provider' are environment/config states rather
+ * than credential failures, and 'temporarily-unavailable' is transient.
+ */
+export const MINIMAX_CREDENTIAL_FAILURE_STATUSES: ReadonlySet<MiniMaxSubscriptionStatus> = new Set([
+  'expired',
+  'not-signed-in',
+  'unsupported-account',
+]);
+
+/** Retained snapshots older than this are treated as zombies and released. */
+export const MINIMAX_SNAPSHOT_RETENTION_TTL_SEC = 30 * 60;
+
+/**
+ * Renderer-side merge: when a reload yields an empty snapshot (empty limits or
+ * an IPC rejection) but a previous non-empty snapshot is still on screen, keep
+ * the old data and mark it stale instead of unloading the card — but only for
+ * transient failures. Credential-failure statuses pass through unchanged so a
+ * real 401/expiry surfaces the re-login prompt, and the retained snapshot is
+ * released after {@link MINIMAX_SNAPSHOT_RETENTION_TTL_SEC} so it can't live
+ * forever. A first load with no previous data passes the empty snapshot
+ * through unchanged.
+ *
+ * @param nowSec injectable clock (Unix seconds); defaults to system time.
+ */
+export function retainMiniMaxSnapshotOnEmpty(
+  previous: MiniMaxSubscriptionSnapshot,
+  incoming: MiniMaxSubscriptionSnapshot,
+  nowSec: number = Math.floor(Date.now() / 1_000),
+): MiniMaxSubscriptionSnapshot {
+  if (incoming.limits.length !== 0 || previous.limits.length === 0) {
+    return incoming;
+  }
+  // Real auth/credential failure: never mask the re-login prompt.
+  if (MINIMAX_CREDENTIAL_FAILURE_STATUSES.has(incoming.status)) {
+    return incoming;
+  }
+  // No trustworthy age (e.g. previous state was synthesized): don't retain.
+  if (previous.fetchedAt === null) {
+    return incoming;
+  }
+  // Transient failure, but stale data is too old to show indefinitely.
+  if (nowSec - previous.fetchedAt > MINIMAX_SNAPSHOT_RETENTION_TTL_SEC) {
+    return incoming;
+  }
+  return { ...previous, stale: true, message: incoming.message ?? previous.message };
+}

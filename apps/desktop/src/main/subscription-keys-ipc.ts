@@ -2,6 +2,7 @@
 // main/subscription-keys-ipc.ts
 import { ipcMain } from 'electron';
 import { clearKeys, getKeyStatus, saveKeys, type SubscriptionKeyStore } from './subscription-keystore';
+import { validateArkAccessKeyIdForSave } from '../shared/ark-credentials';
 
 export const SUBSCRIPTION_KEYS_GET_STATUS_CHANNEL = 'subscription-keys:get-status';
 export const SUBSCRIPTION_KEYS_SAVE_CHANNEL = 'subscription-keys:save';
@@ -23,6 +24,9 @@ export function registerSubscriptionKeysIpc(): () => void {
     if (keys.ark) {
       const ak = (keys.ark.accessKeyId ?? '').trim();
       const sk = (keys.ark.secretAccessKey ?? '').trim();
+      // 只拦 UI 手输保存通道：env 来源在 resolveArkCredentials 直读，不经过这里
+      const akError = validateArkAccessKeyIdForSave(ak);
+      if (akError) return { success: false, message: akError };
       if (ak && sk) cleaned.ark = { accessKeyId: ak, secretAccessKey: sk, region: keys.ark.region };
     }
     return saveKeys(cleaned);

@@ -13,8 +13,16 @@
     "types": ["node"]
   },
   "include": [
+    "src/shared/pet-quota-alert.ts",
+    "src/shared/pet-quota-alert.test.ts",
     "src/shared/pet-sync-feedback.ts",
     "src/shared/pet-sync-feedback.test.ts",
+    "src/shared/pet-quota-bubble.ts",
+    "src/shared/pet-quota-bubble.test.ts",
+    "src/shared/pet-quota-integration.ts",
+    "src/shared/pet-quota-integration.test.ts",
+    "src/shared/pet-quota-providers.ts",
+    "src/shared/pet-quota-providers.test.ts",
     "src/shared/auto-update.ts",
     "src/shared/auto-update.test.ts",
     "src/main/desktop-pet-scanner.ts",
@@ -76,9 +84,15 @@
     "src/main/workbuddy-subscription.test.ts",
     "src/shared/ark-subscription.ts",
     "src/shared/ark-subscription.test.ts",
+    "src/shared/ark-token-packs.ts",
+    "src/shared/ark-token-packs.test.ts",
     "src/main/ark-subscription.ts",
     "src/main/ark-subscription.test.ts",
     "src/main/ark-signing.ts",
-    "src/main/ark-signing.test.ts"
+    "src/main/ark-signing.test.ts",
+    "src/shared/ark-credentials.ts",
+    "src/shared/ark-credentials.test.ts",
+    "src/shared/ark-error.ts",
+    "src/shared/ark-error.test.ts"
   ]
 }

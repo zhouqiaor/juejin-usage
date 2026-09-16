@@ -10,11 +10,13 @@ import Minimax from '@lobehub/icons/es/Minimax';
 import OpenCode from '@lobehub/icons/es/OpenCode';
 import Qoder from '@lobehub/icons/es/Qoder';
 import Trae from '@lobehub/icons/es/Trae';
+import Volcengine from '@lobehub/icons/es/Volcengine';
 import ZAI from '@lobehub/icons/es/ZAI';
 
 export type SubscriptionBrand =
   | 'antigravity' | 'claude' | 'codebuddy' | 'codex' | 'cursor' | 'deepseek'
-  | 'grok' | 'kimi' | 'minimax' | 'opencode' | 'qoder' | 'trae' | 'zcode';
+  | 'grok' | 'kimi' | 'minimax' | 'opencode' | 'qoder' | 'trae' | 'volcengine'
+  | 'zcode';
 
 const iconClassName = 'size-6 shrink-0';
 const monoIconClassName = `${iconClassName} text-foreground`;
@@ -34,6 +36,7 @@ export function SubscriptionBrandIcon({ brand }: { brand: SubscriptionBrand }) {
     case 'opencode': return <OpenCode aria-hidden className={monoIconClassName} size={24} />;
     case 'qoder': return <Qoder.Color aria-hidden className={iconClassName} size={24} />;
     case 'trae': return <Trae.Color aria-hidden className={iconClassName} size={24} />;
+    case 'volcengine': return <Volcengine.Color aria-hidden className={iconClassName} size={24} />;
     case 'zcode': return <ZAI aria-hidden className={monoIconClassName} size={24} />;
   }
 }

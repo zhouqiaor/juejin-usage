@@ -123,6 +123,11 @@ declare global {
         autoMoveIntervalMinutes: number;
         syncFeedbackEnabled: boolean;
         syncFeedbackDurationSec: number;
+        quotaBubbleMode: 'off' | 'periodic' | 'persistent';
+        quotaBubbleIntervalMin: number;
+        quotaAlertEnabled: boolean;
+        quotaAlertThreshold: 80 | 90 | 95;
+        quotaAlertCooldownMin: number;
       }>;
       setDesktopPetEnabled: (enabled: boolean) => Promise<boolean>;
       getDesktopPetCatalog: () => Promise<import('../shared/desktop-pet-catalog').DesktopPetCatalog>;
@@ -151,6 +156,11 @@ declare global {
         autoMoveIntervalMinutes: number;
         syncFeedbackEnabled: boolean;
         syncFeedbackDurationSec: number;
+        quotaBubbleMode: 'off' | 'periodic' | 'persistent';
+        quotaBubbleIntervalMin: number;
+        quotaAlertEnabled: boolean;
+        quotaAlertThreshold: 80 | 90 | 95;
+        quotaAlertCooldownMin: number;
       }>;
       setDesktopPetPreferences: (changes: {
         scale?: number;
@@ -159,6 +169,11 @@ declare global {
         autoMoveIntervalMinutes?: number;
         syncFeedbackEnabled?: boolean;
         syncFeedbackDurationSec?: number;
+        quotaBubbleMode?: 'off' | 'periodic' | 'persistent';
+        quotaBubbleIntervalMin?: number;
+        quotaAlertEnabled?: boolean;
+        quotaAlertThreshold?: 80 | 90 | 95;
+        quotaAlertCooldownMin?: number;
       }) => Promise<{
         enabled: boolean;
         selectedPetId: string;
@@ -169,10 +184,16 @@ declare global {
         autoMoveIntervalMinutes: number;
         syncFeedbackEnabled: boolean;
         syncFeedbackDurationSec: number;
+        quotaBubbleMode: 'off' | 'periodic' | 'persistent';
+        quotaBubbleIntervalMin: number;
+        quotaAlertEnabled: boolean;
+        quotaAlertThreshold: 80 | 90 | 95;
+        quotaAlertCooldownMin: number;
       }>;
       setDesktopPetMouseIgnored: (ignored: boolean) => void;
       beginDesktopPetDrag: () => void;
       endDesktopPetDrag: () => void;
+      setDesktopPetBubbleHeight: (heightPx: number) => Promise<number>;
       onDesktopPetAnimation: (
         callback: (animation: 'idle' | 'running-left' | 'running-right') => void,
       ) => () => void;
@@ -186,6 +207,11 @@ declare global {
         autoMoveIntervalMinutes: number;
         syncFeedbackEnabled: boolean;
         syncFeedbackDurationSec: number;
+        quotaBubbleMode: 'off' | 'periodic' | 'persistent';
+        quotaBubbleIntervalMin: number;
+        quotaAlertEnabled: boolean;
+        quotaAlertThreshold: 80 | 90 | 95;
+        quotaAlertCooldownMin: number;
       }) => void) => () => void;
       onMaximized: (callback: (isMaximized: boolean) => void) => () => void;
       api: {

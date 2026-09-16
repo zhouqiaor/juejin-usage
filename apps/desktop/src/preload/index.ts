@@ -46,6 +46,28 @@ import {
   isPetSyncFeedback,
   type PetSyncFeedback,
 } from '../shared/pet-sync-feedback';
+import type { QuotaAlertThreshold } from '../shared/pet-quota-alert';
+
+type QuotaBubbleMode = 'off' | 'periodic' | 'persistent';
+
+interface DesktopPetPreferencesValue {
+  enabled: boolean;
+  selectedPetId: string;
+  position?: { x: number; y: number };
+  scale: number;
+  frameIntervalMs: number;
+  autoMoveEnabled: boolean;
+  autoMoveIntervalMinutes: number;
+  syncFeedbackEnabled: boolean;
+  syncFeedbackDurationSec: number;
+  quotaBubbleMode: QuotaBubbleMode;
+  quotaBubbleIntervalMin: number;
+  quotaAlertEnabled: boolean;
+  quotaAlertThreshold: QuotaAlertThreshold;
+  quotaAlertCooldownMin: number;
+}
+
+type DesktopPetPreferenceChanges = Partial<Omit<DesktopPetPreferencesValue, 'enabled' | 'selectedPetId' | 'position'>>;
 
 const API_REQUEST_CHANNEL = 'tud:api-request';
 const DATA_SYNCED_CHANNEL = 'tud:data-synced';
@@ -71,6 +93,7 @@ const DESKTOP_PET_FETCH_REMOTE_CATALOG_CHANNEL = 'desktop-pet:fetch-remote-catal
 const DESKTOP_PET_INSTALL_REMOTE_CHANNEL = 'desktop-pet:install-remote';
 const DESKTOP_PET_OPEN_DIRECTORY_CHANNEL = 'desktop-pet:open-directory';
 const DESKTOP_PET_SPRITESHEET_URL_CHANNEL = 'desktop-pet:spritesheet-url';
+const DESKTOP_PET_SET_BUBBLE_HEIGHT_CHANNEL = 'desktop-pet:set-bubble-height';
 const SHARE_CARD_COPY_IMAGE_CHANNEL = 'share-card:copy-image';
 const CODEX_SUBSCRIPTION_GET_CHANNEL = 'codex-subscription:get';
 const CLAUDE_SUBSCRIPTION_GET_CHANNEL = 'claude-subscription:get';
@@ -251,17 +274,8 @@ const tudApi = {
   setLaunchHidden: (hidden: boolean): Promise<boolean> =>
     ipcRenderer.invoke(AUTOSTART_SET_HIDDEN_CHANNEL, hidden),
 
-  getDesktopPet: (): Promise<{
-    enabled: boolean;
-    selectedPetId: string;
-    position?: { x: number; y: number };
-    scale: number;
-    frameIntervalMs: number;
-    autoMoveEnabled: boolean;
-    autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
-  }> => ipcRenderer.invoke(DESKTOP_PET_GET_CHANNEL),
+  getDesktopPet: (): Promise<DesktopPetPreferencesValue> =>
+    ipcRenderer.invoke(DESKTOP_PET_GET_CHANNEL),
 
   setDesktopPetEnabled: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke(DESKTOP_PET_SET_ENABLED_CHANNEL, enabled),
@@ -281,36 +295,13 @@ const tudApi = {
   getDesktopPetSpritesheetUrl: (id: string): Promise<string> =>
     ipcRenderer.invoke(DESKTOP_PET_SPRITESHEET_URL_CHANNEL, id),
 
-  setSelectedDesktopPet: (selectedPetId: string): Promise<{
-    enabled: boolean;
-    selectedPetId: string;
-    position?: { x: number; y: number };
-    scale: number;
-    frameIntervalMs: number;
-    autoMoveEnabled: boolean;
-    autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
-  }> => ipcRenderer.invoke('desktop-pet:set-selected', selectedPetId),
+  setSelectedDesktopPet: (selectedPetId: string): Promise<DesktopPetPreferencesValue> =>
+    ipcRenderer.invoke('desktop-pet:set-selected', selectedPetId),
 
-  setDesktopPetPreferences: (changes: {
-    scale?: number;
-    frameIntervalMs?: number;
-    autoMoveEnabled?: boolean;
-    autoMoveIntervalMinutes?: number;
-    syncFeedbackEnabled?: boolean;
-    syncFeedbackDurationSec?: number;
-  }): Promise<{
-    enabled: boolean;
-    selectedPetId: string;
-    position?: { x: number; y: number };
-    scale: number;
-    frameIntervalMs: number;
-    autoMoveEnabled: boolean;
-    autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
-  }> => ipcRenderer.invoke('desktop-pet:set-preferences', changes),
+  setDesktopPetPreferences: (
+    changes: DesktopPetPreferenceChanges,
+  ): Promise<DesktopPetPreferencesValue> =>
+    ipcRenderer.invoke('desktop-pet:set-preferences', changes),
 
   setDesktopPetMouseIgnored: (ignored: boolean) =>
     ipcRenderer.send(DESKTOP_PET_SET_MOUSE_IGNORE_CHANNEL, ignored),
@@ -323,6 +314,14 @@ const tudApi = {
   beginDesktopPetDrag: () => ipcRenderer.send('desktop-pet:begin-drag'),
   endDesktopPetDrag: () => ipcRenderer.send('desktop-pet:end-drag'),
 
+  /**
+   * Reports the merged bubble's rendered content height so main can grow the
+   * transparent host window upward. Resolves to the extra pixels actually
+   * granted (screen-top clamp); the renderer uses it as the max-height budget.
+   */
+  setDesktopPetBubbleHeight: (heightPx: number): Promise<number> =>
+    ipcRenderer.invoke(DESKTOP_PET_SET_BUBBLE_HEIGHT_CHANNEL, heightPx),
+
   onDesktopPetAnimation: (callback: (animation: PetAnimation) => void) => {
     const listener = (_event: unknown, animation: PetAnimation) => {
       if (animation === 'idle' || animation === 'running-left' || animation === 'running-right') {
@@ -333,17 +332,7 @@ const tudApi = {
     return () => ipcRenderer.removeListener(DESKTOP_PET_ANIMATION_CHANNEL, listener);
   },
 
-  onDesktopPetPreferences: (callback: (preferences: {
-    enabled: boolean;
-    selectedPetId: string;
-    position?: { x: number; y: number };
-    scale: number;
-    frameIntervalMs: number;
-    autoMoveEnabled: boolean;
-    autoMoveIntervalMinutes: number;
-    syncFeedbackEnabled: boolean;
-    syncFeedbackDurationSec: number;
-  }) => void) => {
+  onDesktopPetPreferences: (callback: (preferences: DesktopPetPreferencesValue) => void) => {
     const listener = (_event: unknown, preferences: unknown) => {
       if (!preferences || typeof preferences !== 'object') return;
       const value = preferences as {
@@ -356,6 +345,11 @@ const tudApi = {
         autoMoveIntervalMinutes?: unknown;
         syncFeedbackEnabled?: unknown;
         syncFeedbackDurationSec?: unknown;
+        quotaBubbleMode?: unknown;
+        quotaBubbleIntervalMin?: unknown;
+        quotaAlertEnabled?: unknown;
+        quotaAlertThreshold?: unknown;
+        quotaAlertCooldownMin?: unknown;
       };
       if (typeof value.enabled !== 'boolean' || typeof value.selectedPetId !== 'string' || typeof value.scale !== 'number' || typeof value.frameIntervalMs !== 'number' || typeof value.autoMoveEnabled !== 'boolean' || typeof value.autoMoveIntervalMinutes !== 'number') return;
       const syncFeedbackEnabled = typeof value.syncFeedbackEnabled === 'boolean'
@@ -368,6 +362,29 @@ const tudApi = {
         && value.syncFeedbackDurationSec <= 10
           ? value.syncFeedbackDurationSec
           : 3;
+      const quotaBubbleMode: QuotaBubbleMode = value.quotaBubbleMode === 'periodic'
+        || value.quotaBubbleMode === 'persistent'
+        ? value.quotaBubbleMode
+        : 'off';
+      const quotaBubbleIntervalMin = typeof value.quotaBubbleIntervalMin === 'number'
+        && Number.isInteger(value.quotaBubbleIntervalMin)
+        && value.quotaBubbleIntervalMin >= 1
+        && value.quotaBubbleIntervalMin <= 60
+          ? value.quotaBubbleIntervalMin
+          : 5;
+      const quotaAlertEnabled = typeof value.quotaAlertEnabled === 'boolean'
+        ? value.quotaAlertEnabled
+        : false;
+      const quotaAlertThreshold: QuotaAlertThreshold = value.quotaAlertThreshold === 80
+        || value.quotaAlertThreshold === 95
+        ? value.quotaAlertThreshold
+        : 90;
+      const quotaAlertCooldownMin = typeof value.quotaAlertCooldownMin === 'number'
+        && Number.isInteger(value.quotaAlertCooldownMin)
+        && value.quotaAlertCooldownMin >= 5
+        && value.quotaAlertCooldownMin <= 360
+          ? value.quotaAlertCooldownMin
+          : 30;
       callback({
         enabled: value.enabled,
         selectedPetId: value.selectedPetId,
@@ -377,6 +394,11 @@ const tudApi = {
         autoMoveIntervalMinutes: value.autoMoveIntervalMinutes,
         syncFeedbackEnabled,
         syncFeedbackDurationSec,
+        quotaBubbleMode,
+        quotaBubbleIntervalMin,
+        quotaAlertEnabled,
+        quotaAlertThreshold,
+        quotaAlertCooldownMin,
         ...(typeof value.position?.x === 'number' && typeof value.position.y === 'number'
           ? { position: { x: value.position.x, y: value.position.y } }
           : {}),

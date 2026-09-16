@@ -305,6 +305,14 @@ function DesktopPetSettings({
   const [autoMoveIntervalMinutes, setAutoMoveIntervalMinutes] = useState(2);
   const [syncFeedbackEnabled, setSyncFeedbackEnabled] = useState(false);
   const [syncFeedbackDurationSec, setSyncFeedbackDurationSec] = useState(3);
+  const [quotaBubbleMode, setQuotaBubbleMode] =
+    useState<'off' | 'periodic' | 'persistent'>('off');
+  const [quotaBubbleIntervalMin, setQuotaBubbleIntervalMin] = useState(5);
+  const [quotaAlertEnabled, setQuotaAlertEnabled] = useState(false);
+  const [quotaAlertThreshold, setQuotaAlertThreshold] = useState<80 | 90 | 95>(90);
+  const [quotaAlertCooldownMin, setQuotaAlertCooldownMin] = useState(30);
+  const [quotaBubbleMenuOpen, setQuotaBubbleMenuOpen] = useState(false);
+  const [quotaThresholdMenuOpen, setQuotaThresholdMenuOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const pendingPreferenceChanges = useRef<{
     scale?: number;
@@ -313,6 +321,11 @@ function DesktopPetSettings({
     autoMoveIntervalMinutes?: number;
     syncFeedbackEnabled?: boolean;
     syncFeedbackDurationSec?: number;
+    quotaBubbleMode?: 'off' | 'periodic' | 'persistent';
+    quotaBubbleIntervalMin?: number;
+    quotaAlertEnabled?: boolean;
+    quotaAlertThreshold?: 80 | 90 | 95;
+    quotaAlertCooldownMin?: number;
   }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -350,6 +363,11 @@ function DesktopPetSettings({
         autoMoveIntervalMinutes: number;
         syncFeedbackEnabled: boolean;
         syncFeedbackDurationSec: number;
+        quotaBubbleMode: 'off' | 'periodic' | 'persistent';
+        quotaBubbleIntervalMin: number;
+        quotaAlertEnabled: boolean;
+        quotaAlertThreshold: 80 | 90 | 95;
+        quotaAlertCooldownMin: number;
       },
       skipMotion = false,
     ) => {
@@ -362,6 +380,11 @@ function DesktopPetSettings({
       setAutoMoveIntervalMinutes(pref.autoMoveIntervalMinutes);
       setSyncFeedbackEnabled(pref.syncFeedbackEnabled);
       setSyncFeedbackDurationSec(pref.syncFeedbackDurationSec);
+      setQuotaBubbleMode(pref.quotaBubbleMode);
+      setQuotaBubbleIntervalMin(pref.quotaBubbleIntervalMin);
+      setQuotaAlertEnabled(pref.quotaAlertEnabled);
+      setQuotaAlertThreshold(pref.quotaAlertThreshold);
+      setQuotaAlertCooldownMin(pref.quotaAlertCooldownMin);
     };
 
     void window.tud
@@ -434,6 +457,11 @@ function DesktopPetSettings({
     autoMoveIntervalMinutes?: number;
     syncFeedbackEnabled?: boolean;
     syncFeedbackDurationSec?: number;
+    quotaBubbleMode?: 'off' | 'periodic' | 'persistent';
+    quotaBubbleIntervalMin?: number;
+    quotaAlertEnabled?: boolean;
+    quotaAlertThreshold?: 80 | 90 | 95;
+    quotaAlertCooldownMin?: number;
   }) => {
     try {
       const saved = await window.tud.setDesktopPetPreferences(changes);
@@ -443,6 +471,11 @@ function DesktopPetSettings({
       setAutoMoveIntervalMinutes(saved.autoMoveIntervalMinutes);
       setSyncFeedbackEnabled(saved.syncFeedbackEnabled);
       setSyncFeedbackDurationSec(saved.syncFeedbackDurationSec);
+      setQuotaBubbleMode(saved.quotaBubbleMode);
+      setQuotaBubbleIntervalMin(saved.quotaBubbleIntervalMin);
+      setQuotaAlertEnabled(saved.quotaAlertEnabled);
+      setQuotaAlertThreshold(saved.quotaAlertThreshold);
+      setQuotaAlertCooldownMin(saved.quotaAlertCooldownMin);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : '更新桌面宠物设置失败',
@@ -457,6 +490,11 @@ function DesktopPetSettings({
     autoMoveIntervalMinutes?: number;
     syncFeedbackEnabled?: boolean;
     syncFeedbackDurationSec?: number;
+    quotaBubbleMode?: 'off' | 'periodic' | 'persistent';
+    quotaBubbleIntervalMin?: number;
+    quotaAlertEnabled?: boolean;
+    quotaAlertThreshold?: 80 | 90 | 95;
+    quotaAlertCooldownMin?: number;
   }) => {
     pendingPreferenceChanges.current = {
       ...pendingPreferenceChanges.current,
@@ -778,6 +816,131 @@ function DesktopPetSettings({
             </NumberField.Group>
             <Description>
               同步到新增 Token 时，气泡展示 {syncFeedbackDurationSec} 秒后自动关闭。
+            </Description>
+          </NumberField>
+          <Select
+            aria-label="额度气泡"
+            isDisabled={petControlsDisabled}
+            isOpen={quotaBubbleMenuOpen}
+            value={quotaBubbleMode}
+            variant="secondary"
+            onChange={(value) => {
+              if (value === null) return;
+              const next = String(value) as 'off' | 'periodic' | 'persistent';
+              setQuotaBubbleMode(next);
+              void savePetPreferences({ quotaBubbleMode: next });
+            }}
+            onOpenChange={setQuotaBubbleMenuOpen}
+          >
+            <Label>额度气泡</Label>
+            <Select.Trigger>
+              <Select.Value>
+                {({ selectedText }) => selectedText}
+              </Select.Value>
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="额度气泡模式">
+                <ListBox.Item id="off" textValue="关闭">关闭</ListBox.Item>
+                <ListBox.Item id="periodic" textValue="周期弹出">周期弹出</ListBox.Item>
+                <ListBox.Item id="persistent" textValue="常驻">常驻</ListBox.Item>
+              </ListBox>
+            </Select.Popover>
+          </Select>
+          {quotaBubbleMode === 'periodic' && (
+            <NumberField
+              isDisabled={petControlsDisabled}
+              maxValue={60}
+              minValue={1}
+              onChange={(value) => {
+                if (!Number.isFinite(value)) return;
+                const next = Math.min(60, Math.max(1, Math.round(value)));
+                setQuotaBubbleIntervalMin(next);
+                schedulePetPreferenceSave({ quotaBubbleIntervalMin: next });
+              }}
+              step={1}
+              value={quotaBubbleIntervalMin}
+              variant="secondary"
+            >
+              <Label>气泡弹出间隔</Label>
+              <NumberField.Group>
+                <NumberField.DecrementButton />
+                <NumberField.Input />
+                <NumberField.IncrementButton />
+              </NumberField.Group>
+              <Description>
+                每隔 {quotaBubbleIntervalMin} 分钟自动弹出一次额度气泡。
+              </Description>
+            </NumberField>
+          )}
+          <Checkbox
+            id="desktop-pet-quota-alert-enabled"
+            isDisabled={petControlsDisabled}
+            isSelected={quotaAlertEnabled}
+            onChange={(checked) => {
+              setQuotaAlertEnabled(checked);
+              void savePetPreferences({ quotaAlertEnabled: checked });
+            }}
+          >
+            <Checkbox.Content>
+              <Checkbox.Control>
+                <Checkbox.Indicator />
+              </Checkbox.Control>
+              套餐阈值告警
+            </Checkbox.Content>
+          </Checkbox>
+          <Select
+            aria-label="告警阈值"
+            isDisabled={petControlsDisabled || !quotaAlertEnabled}
+            isOpen={quotaThresholdMenuOpen}
+            value={String(quotaAlertThreshold)}
+            variant="secondary"
+            onChange={(value) => {
+              if (value === null) return;
+              const next = Number(value) as 80 | 90 | 95;
+              if (next !== 80 && next !== 90 && next !== 95) return;
+              setQuotaAlertThreshold(next);
+              void savePetPreferences({ quotaAlertThreshold: next });
+            }}
+            onOpenChange={setQuotaThresholdMenuOpen}
+          >
+            <Label>告警阈值</Label>
+            <Select.Trigger>
+              <Select.Value>
+                {({ selectedText }) => selectedText}
+              </Select.Value>
+              <Select.Indicator />
+            </Select.Trigger>
+            <Select.Popover>
+              <ListBox aria-label="套餐告警阈值">
+                <ListBox.Item id="80" textValue="用量达 80%">用量达 80%</ListBox.Item>
+                <ListBox.Item id="90" textValue="用量达 90%">用量达 90%</ListBox.Item>
+                <ListBox.Item id="95" textValue="用量达 95%">用量达 95%</ListBox.Item>
+              </ListBox>
+            </Select.Popover>
+          </Select>
+          <NumberField
+            isDisabled={petControlsDisabled || !quotaAlertEnabled}
+            maxValue={360}
+            minValue={5}
+            onChange={(value) => {
+              if (!Number.isFinite(value)) return;
+              const next = Math.min(360, Math.max(5, Math.round(value)));
+              setQuotaAlertCooldownMin(next);
+              schedulePetPreferenceSave({ quotaAlertCooldownMin: next });
+            }}
+            step={5}
+            value={quotaAlertCooldownMin}
+            variant="secondary"
+          >
+            <Label>告警冷却</Label>
+            <NumberField.Group>
+              <NumberField.DecrementButton />
+              <NumberField.Input />
+              <NumberField.IncrementButton />
+            </NumberField.Group>
+            <Description>
+              同一套餐 {quotaAlertCooldownMin} 分钟内只提醒一次；用量回落 5% 后才会再次武装。
             </Description>
           </NumberField>
         </div>

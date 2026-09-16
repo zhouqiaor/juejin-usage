@@ -4,12 +4,19 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   DEFAULT_DESKTOP_PET_FRAME_INTERVAL_MS,
+  DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN,
+  DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED,
+  DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD,
+  DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN,
+  DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_MODE,
   DEFAULT_DESKTOP_PET_SCALE,
+  isQuotaBubbleMode,
   loadDesktopPetPref,
   saveDesktopPetPref,
   type DesktopPetPref,
   type DesktopPetPosition,
 } from './autostart';
+import { isQuotaAlertThreshold } from '../shared/pet-quota-alert';
 import { defaultPreloadPath } from './DesktopWindow';
 import { getDesktopPetLayout } from '../shared/desktop-pet-layout';
 import {
@@ -41,6 +48,16 @@ const PET_FETCH_REMOTE_CATALOG_CHANNEL = 'desktop-pet:fetch-remote-catalog';
 const PET_INSTALL_REMOTE_CHANNEL = 'desktop-pet:install-remote';
 const PET_OPEN_DIRECTORY_CHANNEL = 'desktop-pet:open-directory';
 const PET_SPRITESHEET_URL_CHANNEL = 'desktop-pet:spritesheet-url';
+/** renderer 上报气泡实际内容高度（px），返回 main 实际准予向上扩出的额外高度。 */
+const PET_SET_BUBBLE_HEIGHT_CHANNEL = 'desktop-pet:set-bubble-height';
+/** 与 renderer BUBBLE_GAP_PX 保持一致：气泡底边距 sprite 的间隙。 */
+const PET_BUBBLE_GAP_PX = 8;
+/**
+ * 气泡再高也不允许窗口顶边贴上屏幕：动态按显示器可用区钳制（屏幕顶边至少留
+ * 8px）。无固定 px 上限——内容多高就向上扩多高；空间真的不足时由 renderer
+ * 的 body max-height + 内部滚动作为极端兜底。
+ */
+const PET_BUBBLE_TOP_MARGIN_PX = 8;
 const PET_MARGIN = 24;
 const BUILTIN_PETS = [
   { id: 'hawking', displayName: 'Hawking', description: '橙色、锐眼的土星伙伴', glow: { primary: '#ff7a1a', accent: '#ffd21f' }, source: 'builtin' as const },
@@ -86,6 +103,13 @@ interface AutoMoveRun {
 
 let autoMoveRun: AutoMoveRun | null = null;
 
+/**
+ * 合并气泡比窗口预留的头部空间（popoverTop - gap）高出的像素数。
+ * 窗口只向上方扩高（y 上移、sprite 屏幕位置不动）；受屏幕顶边约束，
+ * 实际准予值可能小于请求值，renderer 据此给气泡内容加 max-height 滚动兜底。
+ */
+let bubbleExtraPx = 0;
+
 /** ~120Hz: fast enough to feel glued to the cursor, cheap enough to stay smooth. */
 const DRAG_TICK_MS = 8;
 /** Ignore sub-pixel jitter so the sprite does not flip direction while held still. */
@@ -107,6 +131,42 @@ function petDimensions(scale: number) {
     petWidth: layout.spriteWidth,
     spriteLeft: layout.spriteLeft,
   };
+}
+
+/**
+ * 合并气泡按内容自适应高度：超出基础头部预留的部分让窗口向上扩高
+ * （y 上移、窗口底边/sprite 屏幕位置不动）。返回实际准予的额外像素；
+ * 无固定 px 上限，只按所在显示器可用区动态钳制（顶边至少留
+ * PET_BUBBLE_TOP_MARGIN_PX）；空间不足时准予值小于请求值，renderer 用
+ * body max-height + 内部滚动作为极端兜底。高度为 0（气泡隐藏）时收回全部扩高。
+ */
+async function applyBubbleHeight(desiredHeightPx: number): Promise<number> {
+  if (!isPetWindow(petWindow)) return 0;
+  if (!Number.isFinite(desiredHeightPx) || desiredHeightPx < 0) return bubbleExtraPx;
+  const pref = await loadDesktopPetPref();
+  const { popoverTop } = getDesktopPetLayout(pref.scale);
+  const baseMaxBubbleHeight = popoverTop - PET_BUBBLE_GAP_PX;
+  const wantedExtra = Math.max(0, Math.ceil(desiredHeightPx - baseMaxBubbleHeight));
+  const delta = wantedExtra - bubbleExtraPx;
+  if (delta !== 0 && isPetWindow(petWindow)) {
+    const bounds = petWindow.getBounds();
+    const { workArea } = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+    // 向上扩张受屏幕顶边约束（至少留 PET_BUBBLE_TOP_MARGIN_PX）；收缩（delta<0）总是允许。
+    const headroom = Math.max(0, bounds.y - workArea.y - PET_BUBBLE_TOP_MARGIN_PX);
+    const applied = delta > 0 ? Math.min(delta, headroom) : delta;
+    if (applied !== 0) {
+      petWindow.setBounds({
+        x: bounds.x,
+        y: bounds.y - applied,
+        width: bounds.width,
+        height: bounds.height + applied,
+      });
+      bubbleExtraPx += applied;
+      // 拖拽以 cursor-窗口原点偏移跟随；窗口上移后同步修正，避免 sprite 跳变。
+      if (dragOrigin) dragOrigin.offsetY += applied;
+    }
+  }
+  return bubbleExtraPx;
 }
 
 function clampPosition(position: DesktopPetPosition, scale: number): DesktopPetPosition {
@@ -552,6 +612,7 @@ async function ensurePetWindow(): Promise<BrowserWindow> {
   window.on('move', onPetMoved);
   window.on('closed', () => {
     stopAutoMove();
+    bubbleExtraPx = 0;
     // Only clear the ref if it still points at this window; a newer window
     // created by a queued toggle must not be nulled out by the old one.
     if (petWindow === window) {
@@ -594,11 +655,23 @@ async function doSyncDesktopPet(): Promise<void> {
   }
   const window = await ensurePetWindow();
   if (window.isDestroyed()) return;
-  const { width, height } = petDimensions(pref.scale);
+  const base = petDimensions(pref.scale);
+  // 合并气泡动态扩出的高度在 scale/pref 同步后仍然有效：保持窗口底边
+  // （sprite 底部）不动，把高度差折算进 y（见下方 y 补偿）。扩高不设固定
+  // px 上限，只按当前所在显示器顶边可用空间钳制；不足部分 renderer 内部滚动兜底。
+  const bounds0 = window.getBounds();
+  const display = screen.getDisplayNearestPoint({ x: bounds0.x, y: bounds0.y });
+  // 底边（sprite 底部）固定，新顶边 = 当前底边 - (base.height + extra)，
+  // 据此反推顶边 ≥ workArea.y + 8px 时最多能保留多少扩高。
+  const bottom = bounds0.y + bounds0.height;
+  const headroom = Math.max(0, bottom - base.height - display.workArea.y - PET_BUBBLE_TOP_MARGIN_PX);
+  const extra = Math.min(Math.max(0, bubbleExtraPx), headroom);
+  const width = base.width;
+  const height = base.height + extra;
   const bounds = window.getBounds();
   const position = clampPosition({
     x: bounds.x - Math.max(0, Math.round((width - bounds.width) / 2)),
-    y: bounds.y,
+    y: bounds.y + (bounds.height - height),
   }, pref.scale);
   window.setBounds({ x: position.x, y: position.y, width, height });
   latestPosition = position;
@@ -663,6 +736,15 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
     return getDesktopPetSpritesheetUrl(id);
   });
 
+  ipcMain.removeHandler(PET_SET_BUBBLE_HEIGHT_CHANNEL);
+  ipcMain.handle(PET_SET_BUBBLE_HEIGHT_CHANNEL, (event, desiredHeightPx: unknown) => {
+    if (!isPetWindow(petWindow) || event.sender !== petWindow.webContents) {
+      return Promise.resolve(0);
+    }
+    if (typeof desiredHeightPx !== 'number') return Promise.resolve(bubbleExtraPx);
+    return applyBubbleHeight(desiredHeightPx);
+  });
+
   ipcMain.removeHandler(PET_SET_ENABLED_CHANNEL);
   ipcMain.handle(PET_SET_ENABLED_CHANNEL, async (_event, enabled: unknown) => {
     if (typeof enabled !== 'boolean') throw new Error('desktop pet enabled must be a boolean');
@@ -694,6 +776,11 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
       | 'autoMoveIntervalMinutes'
       | 'syncFeedbackEnabled'
       | 'syncFeedbackDurationSec'
+      | 'quotaBubbleMode'
+      | 'quotaBubbleIntervalMin'
+      | 'quotaAlertEnabled'
+      | 'quotaAlertThreshold'
+      | 'quotaAlertCooldownMin'
     >>;
     const scale = typeof next.scale === 'number' && next.scale >= 0.35 && next.scale <= 0.75
       ? next.scale : current.scale ?? DEFAULT_DESKTOP_PET_SCALE;
@@ -715,6 +802,27 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
       && next.syncFeedbackDurationSec <= 10
       ? next.syncFeedbackDurationSec
       : current.syncFeedbackDurationSec;
+    const quotaBubbleMode = isQuotaBubbleMode(next.quotaBubbleMode)
+      ? next.quotaBubbleMode
+      : current.quotaBubbleMode ?? DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_MODE;
+    const quotaBubbleIntervalMin = typeof next.quotaBubbleIntervalMin === 'number'
+      && Number.isInteger(next.quotaBubbleIntervalMin)
+      && next.quotaBubbleIntervalMin >= 1
+      && next.quotaBubbleIntervalMin <= 60
+      ? next.quotaBubbleIntervalMin
+      : current.quotaBubbleIntervalMin ?? DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN;
+    const quotaAlertEnabled = typeof next.quotaAlertEnabled === 'boolean'
+      ? next.quotaAlertEnabled
+      : current.quotaAlertEnabled ?? DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED;
+    const quotaAlertThreshold = isQuotaAlertThreshold(next.quotaAlertThreshold)
+      ? next.quotaAlertThreshold
+      : current.quotaAlertThreshold ?? DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD;
+    const quotaAlertCooldownMin = typeof next.quotaAlertCooldownMin === 'number'
+      && Number.isInteger(next.quotaAlertCooldownMin)
+      && next.quotaAlertCooldownMin >= 5
+      && next.quotaAlertCooldownMin <= 360
+      ? next.quotaAlertCooldownMin
+      : current.quotaAlertCooldownMin ?? DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN;
     const saved = await saveDesktopPetPref({
       ...current,
       scale,
@@ -723,6 +831,11 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
       autoMoveIntervalMinutes,
       syncFeedbackEnabled,
       syncFeedbackDurationSec,
+      quotaBubbleMode,
+      quotaBubbleIntervalMin,
+      quotaAlertEnabled,
+      quotaAlertThreshold,
+      quotaAlertCooldownMin,
     });
     sendPreferences(saved);
     await syncDesktopPet();
@@ -781,6 +894,7 @@ export function unregisterDesktopPetIpc(): void {
   ipcMain.removeHandler(PET_INSTALL_REMOTE_CHANNEL);
   ipcMain.removeHandler(PET_OPEN_DIRECTORY_CHANNEL);
   ipcMain.removeHandler(PET_SPRITESHEET_URL_CHANNEL);
+  ipcMain.removeHandler(PET_SET_BUBBLE_HEIGHT_CHANNEL);
   ipcMain.removeAllListeners(PET_SET_MOUSE_IGNORE_CHANNEL);
   ipcMain.removeAllListeners(PET_BEGIN_DRAG_CHANNEL);
   ipcMain.removeAllListeners(PET_END_DRAG_CHANNEL);
@@ -789,6 +903,7 @@ export function unregisterDesktopPetIpc(): void {
 export function disposeDesktopPet(): void {
   stopDragTicker();
   stopAutoMove();
+  bubbleExtraPx = 0;
   if (moveStopTimer) clearTimeout(moveStopTimer);
   moveStopTimer = null;
   if (positionSaveTimer) clearTimeout(positionSaveTimer);

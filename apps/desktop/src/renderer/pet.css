@@ -107,6 +107,26 @@ body,
   text-align: center;
 }
 
+/* 合并气泡：今日统计 / 套餐余量 两分区之间的细分隔线 */
+.desktop-pet-bubble-divider {
+  background: #ececec;
+  height: 1px;
+  margin: 6px 0;
+}
+
+/*
+ * 合并气泡内容包裹层：main 侧窗口向上扩高受屏幕顶边限制时，
+ * 准予高度不足由这里 max-height + 内部滚动兜底（箭头在包裹层之外，不参与滚动）。
+ */
+.desktop-pet-bubble-body {
+  min-width: 0;
+}
+
+.desktop-pet-bubble-today,
+.desktop-pet-bubble-quota {
+  min-width: 0;
+}
+
 .desktop-pet-bubble-arrow {
   background: #fff;
   bottom: -5px;
@@ -230,4 +250,30 @@ body,
 
 .desktop-pet-preload {
   display: none;
+}
+
+/*
+ * 套餐阈值告警跳动。spritesheet 没有跳跃帧，用纯 CSS transform 实现，
+ * 不引入美术资产。挂在 .desktop-pet-stage 上（该元素无内联 transform，
+ * 窗口定位/拖拽由主进程负责，互不冲突）；不要挂到 .desktop-pet-sprite。
+ * 渲染层在告警态添加 class、解除时移除即可，无需主进程动画 IPC。
+ */
+@keyframes pet-alert-bounce-kf {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-14%);
+  }
+  70% {
+    transform: translateY(0);
+  }
+  85% {
+    transform: translateY(-5%);
+  }
+}
+
+.pet-alert-bounce {
+  animation: pet-alert-bounce-kf 0.72s ease-in-out infinite;
 }

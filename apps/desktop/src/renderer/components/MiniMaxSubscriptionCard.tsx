@@ -3,7 +3,10 @@
 // 在上游基础上加：reset 倒计时、quota 数字（已用/总）、model 名、限流 badge、刷新事件
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  miniMaxHasRealCount,
   miniMaxRemainingPercent,
+  miniMaxRemainingPercentText,
+  retainMiniMaxSnapshotOnEmpty,
   type MiniMaxRateLimitWindow,
   type MiniMaxSubscriptionSnapshot,
 } from '../../shared/minimax-subscription';
@@ -53,10 +56,13 @@ export function MiniMaxSubscriptionCard() {
     requestInFlight.current = true;
     try {
       const snap = await window.tud.getMiniMaxSubscription(force ? { forceRefresh: true } : undefined);
-      setSnapshot(snap);
+      setSnapshot((prev) => retainMiniMaxSnapshotOnEmpty(prev, snap));
       setNow(Math.floor(Date.now() / 1000));
     } catch {
-      setSnapshot({ ...INITIAL_SNAPSHOT, message: '暂时无法读取 MiniMax Code 订阅信息' });
+      setSnapshot((prev) => retainMiniMaxSnapshotOnEmpty(
+        prev,
+        { ...INITIAL_SNAPSHOT, message: '暂时无法读取 MiniMax Code 订阅信息' },
+      ));
     } finally {
       requestInFlight.current = false;
       setLoading(false);
@@ -93,15 +99,24 @@ export function MiniMaxSubscriptionCard() {
 
   const metrics = snapshot.limits.map((limit: MiniMaxRateLimitWindow, index) => {
     const resetText = formatReset(limit.resetsAt, now);
-    const quotaText = limit.totalCount != null && limit.usedCount != null
+    // MiniMax coding_plan/remains 只有百分比有信息量（count 恒为 0）：右值主显示
+    // 剩余百分比（与其余 14 张订阅卡及进度条填充口径一致）；真实已用 count 仅在
+    // usedCount/totalCount 均 >0 时降级进 tooltip（labelTitle 的「已用 x/y」）。
+    const quotaText = miniMaxHasRealCount(limit)
       ? `${formatCount(limit.usedCount)}/${formatCount(limit.totalCount)}`
       : '';
-    const valueText = [quotaText, resetText].filter(Boolean).join(' · ') || undefined;
+    const labelTitle = [quotaText ? `已用 ${quotaText}` : '', resetText]
+      .filter(Boolean)
+      .join(' · ') || undefined;
+    const remainingPercent = Number.isFinite(limit.usedPercent)
+      ? miniMaxRemainingPercent(limit.usedPercent)
+      : 0;
     return {
       color: index === 0 && snapshot.limits.length > 1 ? '#ff6a00' : '#2b7eff',
       label: snapshot.stale && index === 0 ? `${limit.label} 旧` : limit.label,
-      remainingPercent: miniMaxRemainingPercent(limit.usedPercent),
-      valueText,
+      labelTitle,
+      remainingPercent,
+      valueText: miniMaxRemainingPercentText(limit.usedPercent),
     };
   });
 
