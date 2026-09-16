@@ -117,6 +117,58 @@ export function mapMiniMaxQuota(value: unknown): Pick<
   const secondary = asRecord(data.secondary ?? data.weekly);
   if (primary) buckets.push(primary);
   if (secondary) buckets.push(secondary);
+  // [fork extension] Coding Plan 老 API 响应：{ model_remains: [{ current_interval_remaining_percent, current_weekly_remaining_percent, ... }] }
+  // 直接用每项的 remaining 字段构造 window（5h/weekly），不依赖 buckets/pickWindow。
+  const modelRemains = Array.isArray(data.model_remains) ? data.model_remains as unknown[] : [];
+  if (modelRemains.length > 0) {
+    const fiveHour: MiniMaxRateLimitWindow = {
+      id: 'five-hour',
+      label: '5h',
+      usedPercent: 0,
+      resetsAt: null,
+    };
+    const weekly: MiniMaxRateLimitWindow = {
+      id: 'weekly',
+      label: '7d',
+      usedPercent: 0,
+      resetsAt: null,
+    };
+    let hasFiveHour = false;
+    let hasWeekly = false;
+    let resetsAt: number | null = null;
+    for (const itemRaw of modelRemains) {
+      const item = asRecord(itemRaw);
+      if (!item) continue;
+      const fiveHrPct = Number(item.current_interval_remaining_percent);
+      if (Number.isFinite(fiveHrPct) && !hasFiveHour) {
+        fiveHour.usedPercent = Math.max(0, Math.min(100, 100 - fiveHrPct));
+        hasFiveHour = true;
+        const r = item.remains_time ?? item.current_interval_end_time;
+        if (r != null) {
+          const n = Number(r);
+          if (Number.isFinite(n) && n > 0) resetsAt = Math.floor(Date.now() / 1000) + n;
+        }
+      }
+      const wkPct = Number(item.current_weekly_remaining_percent);
+      if (Number.isFinite(wkPct) && !hasWeekly) {
+        weekly.usedPercent = Math.max(0, Math.min(100, 100 - wkPct));
+        hasWeekly = true;
+        const r = item.weekly_remains_time ?? item.current_weekly_end_time;
+        if (r != null && resetsAt == null) {
+          const n = Number(r);
+          if (Number.isFinite(n) && n > 0) resetsAt = Math.floor(Date.now() / 1000) + n;
+        }
+      }
+    }
+    if (hasFiveHour) fiveHour.resetsAt = resetsAt;
+    if (hasWeekly) weekly.resetsAt = resetsAt;
+    if (hasFiveHour || hasWeekly) {
+      return {
+        planLabel,
+        limits: [hasFiveHour ? fiveHour : null, hasWeekly ? weekly : null].filter(Boolean) as MiniMaxRateLimitWindow[],
+      };
+    }
+  }
 
   for (const item of buckets) {
     const window = pickWindow(asRecord(item) as RawMiniMaxWindow | null);

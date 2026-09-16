@@ -165,14 +165,19 @@ async function fetchJson(
     headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
-  return {
-    ok: response.ok,
-    status: response.status,
-    value: response.ok ? await response.json() : null,
-  };
+  const text = await response.text();
+  // [fork dev] 诊断：写 raw 响应到 main log（临时，下次 dev:desktop 重启时生效）
+  console.log(`[minimax-subscription] fetch ${origin}/v1/token_plan/remains status=${response.status} body=${text.slice(0, 500)}`);
+  let value: unknown = null;
+  try { value = text ? JSON.parse(text) : null; } catch {}
+  return { ok: response.ok, status: response.status, value };
 }
 
 async function fetchFreshMiniMaxSubscription(): Promise<MiniMaxSubscriptionSnapshot> {
+  // [fork extension] 优先 keystore（env + safeStorage），不依赖 ~/.minimax-code 存在
+  const fromKeystore = await readLocalCredentials();
+  if (fromKeystore) return fetchQuota(fromKeystore);
+
   if (!existsSync(minimaxCodeHome())) {
     const openCodeCredentials = await readOpenCodeAuth();
     if (!openCodeCredentials) {
@@ -204,6 +209,40 @@ async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubsc
     if (!response.ok || response.status >= 400) {
       return staleFallback('暂时无法读取 MiniMax Code 订阅配额');
     }
+    // [fork extension] base_resp.status_code != 0 表示 API 错误（invalid key、过期等），把 server msg 透给用户
+    const rawValue = response.value as Record<string, unknown> | null;
+    const baseResp = (rawValue && typeof rawValue === 'object' ? (rawValue['base_resp'] as Record<string, unknown> | undefined) : null) ?? null;
+    const code = baseResp ? Number(baseResp['status_code'] ?? 0) : 0;
+    if (code !== 0) {
+      const msg = String(baseResp?.['status_msg'] ?? 'unknown');
+      // [fork extension] region='auto' + key 错误时，尝试另一区
+      if (credentials.region === 'auto' && code === 2049) {
+        const otherRegion: 'global' | 'mainland' = region === 'global' ? 'mainland' : 'global';
+        const otherOrigin = originForRegion(otherRegion);
+        console.log(`[minimax-subscription] ${origin} 返回 ${code}，尝试 ${otherOrigin}`);
+        try {
+          const r2 = await fetchJson(otherOrigin, credentials.token);
+          // [fork extension] 直接看 mapped2.limits：base_resp 不一定存在（Coding Plan 老 API）
+          const mapped2 = mapMiniMaxQuota(r2.value);
+          if (mapped2.limits.length > 0) {
+            return {
+              status: 'ready',
+              planLabel: mapped2.planLabel,
+              region: otherRegion,
+              limits: mapped2.limits,
+              fetchedAt: Math.floor(Date.now() / 1_000),
+              stale: false,
+              message: null,
+            };
+          }
+          // 仍失败，提示两区都不通
+          return unavailable('expired', `MiniMax 返回错误 ${code}: ${msg}（自动尝试 ${otherRegion} 也失败）`);
+        } catch (e2) {
+          return unavailable('expired', `MiniMax 返回错误 ${code}: ${msg}（${otherRegion} 网络异常）`);
+        }
+      }
+      return unavailable('expired', `MiniMax 返回错误 ${code}: ${msg}`);
+    }
     const mapped = mapMiniMaxQuota(response.value);
     if (mapped.limits.length === 0) {
       return staleFallback('MiniMax Code 暂未返回可用的订阅配额');
@@ -219,7 +258,11 @@ async function fetchQuota(credentials: MiniMaxCredentials): Promise<MiniMaxSubsc
     };
     lastSuccess = snapshot;
     return snapshot;
-  } catch {
+  } catch (e) {
+    // [fork dev] 诊断：记录实际 fetch 错误
+    const msg = e instanceof Error ? e.message : String(e);
+    const name = e instanceof Error ? e.name : 'Unknown';
+    console.error(`[minimax-subscription] fetch FAIL: ${name}: ${msg}`);
     return staleFallback('网络异常，暂时无法读取 MiniMax Code 配额');
   }
 }
