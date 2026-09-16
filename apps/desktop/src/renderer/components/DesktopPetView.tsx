@@ -40,7 +40,12 @@ import {
   buildPetQuotaAggregate,
   type PetQuotaAggregate,
 } from '../../shared/pet-quota-providers';
-import { aggregateToQuotaWindows } from '../../shared/pet-quota-integration';
+import { aggregateToMoodInput, aggregateToQuotaWindows } from '../../shared/pet-quota-integration';
+import {
+  PET_MOOD_RESET_FLASH_MS,
+  resolvePetMood,
+  type PetMoodResult,
+} from '../../shared/pet-mood';
 import type { PetSyncFeedback } from '../../shared/pet-sync-feedback';
 import { PetQuotaBubble } from './PetQuotaBubble';
 import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
@@ -63,6 +68,13 @@ const DEFAULT_QUOTA_BUBBLE_INTERVAL_MIN = 5;
 const DEFAULT_QUOTA_ALERT_ENABLED = false;
 const DEFAULT_QUOTA_ALERT_THRESHOLD: QuotaAlertThreshold = 90;
 const DEFAULT_QUOTA_ALERT_COOLDOWN_MIN = 30;
+const DEFAULT_QUOTA_MOOD_ENABLED = true;
+/**
+ * loaded（承压档）下 idle 帧间隔倍率：180ms → 225ms，表现「慢下来」。
+ * 帧时钟是 setInterval 直写 backgroundPosition（无 CSS animation-duration
+ * 可调），倍率只作用于间隔表达式，不改时钟机制。原型取 1.5，M0 收敛为 1.25。
+ */
+const LOADED_MOOD_FRAME_FACTOR = 1.25;
 
 async function fetchRangeTotals(range: DashboardRange): Promise<{
   totalTokens: number;
@@ -106,6 +118,7 @@ export function DesktopPetView() {
     useState<QuotaAlertThreshold>(DEFAULT_QUOTA_ALERT_THRESHOLD);
   const [quotaAlertCooldownMin, setQuotaAlertCooldownMin] =
     useState(DEFAULT_QUOTA_ALERT_COOLDOWN_MIN);
+  const [quotaMoodEnabled, setQuotaMoodEnabled] = useState(DEFAULT_QUOTA_MOOD_ENABLED);
   /** periodic 模式下「当前正处于 10 秒展开窗口」。 */
   const [quotaPeriodicOpen, setQuotaPeriodicOpen] = useState(false);
   /** 自包含气泡在无任何 provider 有有效套餐数据时不渲染额度区。 */
@@ -114,9 +127,15 @@ export function DesktopPetView() {
   const [quotaAggregate, setQuotaAggregate] = useState<PetQuotaAggregate | null>(null);
   /** 告警状态机给出的 level 态（任一窗口 ≥ 阈值且未释放）。 */
   const [quotaAlertActive, setQuotaAlertActive] = useState(false);
+  /** 最近一次 60s 快照评估出的宠物情绪（null = 尚无数据/mood pref 关）。 */
+  const [moodResult, setMoodResult] = useState<PetMoodResult | null>(null);
+  /** resetting 演出覆盖键：非 null 时 stage 强制挂 pet-mood-resetting，1.2s 后摘除。 */
+  const [resetFlashKey, setResetFlashKey] = useState<string | null>(null);
   /** 右键菜单打开期间抑制本轮弹出；bump epoch 让周期定时器重新等满一个周期。 */
   const [quotaScheduleEpoch, setQuotaScheduleEpoch] = useState(0);
   const spriteRef = useRef<HTMLButtonElement>(null);
+  /** 动效层：挂在 sprite 后、stage 内，mood 切换时挂 pet-mood-* class 触发 CSS 动画。 */
+  const fxRef = useRef<HTMLSpanElement>(null);
   /** 合并气泡容器；用其实际高度请求 main 向上扩高透明宿主窗口。 */
   const bubbleRef = useRef<HTMLDivElement>(null);
   /** main 实际准予的额外窗口高度（屏幕顶边不足时小于请求值）。 */
@@ -129,6 +148,14 @@ export function DesktopPetView() {
   const syncFeedbackDurationSecRef = useRef(DEFAULT_SYNC_FEEDBACK_DURATION_SEC);
   /** 告警状态机 state 跨渲染持久（Map 由 evaluateQuotaAlerts 每次整体替换）。 */
   const quotaAlertStateRef = useRef<ReadonlyMap<string, QuotaAlertStateEntry>>(new Map());
+  /** pet-mood reset 边沿去重：已演出过的最紧窗口 reset key（与告警机各自独立）。 */
+  const moodResetKeyRef = useRef<string | null>(null);
+  /**
+   * hydrate seed：首轮评估只把已跨过的 reset key 记入记忆、不补闪（开机时
+   * 用户没在看）；运行中新跨过的重置点才演 1.2s 闪光。pref 关再开不清 key
+   * ref（同一 resetsAt 不演第二次），只在停轮询时复位本标记。
+   */
+  const moodHydratedRef = useRef(false);
   /** 原生右键菜单打开期间不允许周期气泡弹出；下次左键交互清除。 */
   const quotaMenuOpenRef = useRef(false);
   /** IPC 异常只 console.warn 一次，不刷爆宠物主循环日志。 */
@@ -139,8 +166,13 @@ export function DesktopPetView() {
     screenY: number;
     moved: boolean;
   } | null>(null);
+  // loaded 档 idle 降速（180→225ms）；running 仍用拖拽倍率。纯表现参数，
+  // 不含业务分支（情绪判定在 60s load 回调里）。
+  const loadedMoodFactor = quotaMoodEnabled && moodResult?.mood === 'loaded'
+    ? LOADED_MOOD_FRAME_FACTOR
+    : 1;
   const effectiveFrameIntervalMs = animation === 'idle'
-    ? frameIntervalMs
+    ? Math.round(frameIntervalMs * loadedMoodFactor)
     : Math.max(60, Math.round(frameIntervalMs * DRAG_ANIMATION_SPEED_MULTIPLIER));
   const layout = getDesktopPetLayout(scale);
   const { spriteWidth, spriteHeight } = layout;
@@ -203,6 +235,7 @@ export function DesktopPetView() {
           ? pref.quotaAlertCooldownMin
           : DEFAULT_QUOTA_ALERT_COOLDOWN_MIN,
       );
+      setQuotaMoodEnabled(pref.quotaMoodEnabled ?? DEFAULT_QUOTA_MOOD_ENABLED);
     });
     const unsubscribe = window.tud.onDesktopPetPreferences((pref) => {
       setScale(pref.scale);
@@ -226,6 +259,7 @@ export function DesktopPetView() {
           ? pref.quotaAlertCooldownMin
           : DEFAULT_QUOTA_ALERT_COOLDOWN_MIN,
       );
+      setQuotaMoodEnabled(pref.quotaMoodEnabled ?? DEFAULT_QUOTA_MOOD_ENABLED);
     });
     return () => {
       cancelled = true;
@@ -366,11 +400,17 @@ export function DesktopPetView() {
    * 不影响其他家；main 侧每家各有 60s 缓存，轮询命中缓存不打爆网络。
    * SUBSCRIPTION_REFRESH_EVENT 触发 forceRefresh 强刷。任何全失败只 warn 一次。
    */
-  const quotaPollActive = quotaAlertEnabled || quotaBubbleMode !== 'off';
+  // mood 也消费这份快照：默认组合（告警关/气泡关/mood 开）下轮询必须仍然开。
+  const quotaPollActive = quotaMoodEnabled || quotaAlertEnabled || quotaBubbleMode !== 'off';
   useEffect(() => {
     if (!quotaPollActive) {
       setQuotaDataReady(false);
       setQuotaAggregate(null);
+      // 停轮询时复位 mood 展示态与 hydrate 标记；故意不清 moodResetKeyRef：
+      // 重新开启后同一 resetsAt 不二次演出（方案 §2.2）。
+      setMoodResult(null);
+      setResetFlashKey(null);
+      moodHydratedRef.current = false;
       return;
     }
     let cancelled = false;
@@ -391,20 +431,43 @@ export function DesktopPetView() {
         quotaWarnedRef.current = true;
         console.warn('[desktop-pet] some subscription providers failed to load');
       }
-      const aggregate = buildPetQuotaAggregate(outcome.entries, Date.now());
+      // 聚合、告警、mood 共用同一时间戳（告警毫秒 / mood 秒由各自层换算）。
+      const nowMs = Date.now();
+      const aggregate = buildPetQuotaAggregate(outcome.entries, nowMs);
       setQuotaAggregate(aggregate);
       setQuotaDataReady(aggregate.sections.length > 0);
-      if (!quotaAlertEnabled) return;
 
-      const windows = aggregateToQuotaWindows(aggregate);
-      const result = evaluateQuotaAlerts(windows, {
-        threshold: quotaAlertThreshold,
-        cooldownMs: Math.max(0, quotaAlertCooldownMin) * 60_000,
-        nowMs: Date.now(),
-        state: quotaAlertStateRef.current,
-      });
-      quotaAlertStateRef.current = result.state;
-      setQuotaAlertActive(result.fired.length > 0 || result.activeKeys.length > 0);
+      // 告警表现层：阈值/迟滞/冷却状态机，受告警 pref 闸门。
+      if (quotaAlertEnabled) {
+        const windows = aggregateToQuotaWindows(aggregate);
+        const result = evaluateQuotaAlerts(windows, {
+          threshold: quotaAlertThreshold,
+          cooldownMs: Math.max(0, quotaAlertCooldownMin) * 60_000,
+          nowMs,
+          state: quotaAlertStateRef.current,
+        });
+        quotaAlertStateRef.current = result.state;
+        setQuotaAlertActive(result.fired.length > 0 || result.activeKeys.length > 0);
+      }
+
+      // mood 表现层：与告警正交（不受 quotaAlertEnabled 闸门约束），只消费同一
+      // 份聚合快照。业务判定全在这个 I/O 回调里，渲染层只拼 class。
+      if (quotaMoodEnabled) {
+        const moodInput = aggregateToMoodInput(aggregate);
+        const result = resolvePetMood({
+          ...moodInput,
+          nowSec: Math.floor(nowMs / 1000),
+          lastResetFireKey: moodResetKeyRef.current,
+          quotaAlertThreshold,
+        });
+        setMoodResult(result);
+        if (result.resetFiredKey) {
+          moodResetKeyRef.current = result.resetFiredKey;
+          // hydrate seed：首轮（开机/重开轮询）只记 key 不补闪。
+          if (moodHydratedRef.current) setResetFlashKey(result.resetFiredKey);
+        }
+        moodHydratedRef.current = true;
+      }
     };
 
     void load(false);
@@ -424,9 +487,19 @@ export function DesktopPetView() {
   }, [
     quotaPollActive,
     quotaAlertEnabled,
+    quotaMoodEnabled,
     quotaAlertThreshold,
     quotaAlertCooldownMin,
   ]);
+
+  // resetting 1.2s 闪光：class 加入时 CSS animation 自然播放一次，到期摘 class。
+  // 不用 key 重挂节点——.desktop-pet-sprite 持有 spriteRef/帧时钟命令式写入与
+  // pointer capture，重挂会空帧并打断拖拽（方案 §2.3）。
+  useEffect(() => {
+    if (!resetFlashKey) return;
+    const timer = window.setTimeout(() => setResetFlashKey(null), PET_MOOD_RESET_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [resetFlashKey]);
 
   // 关闭告警：立即解除跳动并清空状态机，下次开启从 armed 基线重新开始。
   useEffect(() => {
@@ -683,9 +756,16 @@ export function DesktopPetView() {
         </div>
       ) : null}
       <div
-        className={
-          quotaAlertActive ? 'desktop-pet-stage pet-alert-bounce' : 'desktop-pet-stage'
-        }
+        className={[
+          'desktop-pet-stage',
+          quotaMoodEnabled && moodResult
+            ? `pet-mood-${resetFlashKey ? 'resetting' : moodResult.mood}`
+            : null,
+          // bounce 只由告警 pref 驱动：默认组合（mood 开/告警关）下 ≥阈值只
+          // 变红不跳。两表现层正交——让 mood 接管 bounce 会绕过用户显式关闭
+          // 告警动画的意图（方案 §1.5）。
+          quotaAlertActive ? 'pet-alert-bounce' : null,
+        ].filter(Boolean).join(' ')}
         style={{
           width: spriteWidth,
           height: spriteHeight,
@@ -693,6 +773,9 @@ export function DesktopPetView() {
           top: layout.spriteTop,
           '--pet-glow-primary': pet.glow.primary,
           '--pet-glow-accent': pet.glow.accent,
+          // mood 伪元素装饰（问号/汗珠/ring/趴窝位移）不在精灵 background 的
+          // 缩放链里，固定 px 会在 scale=0.5 下大一倍；CSS 段据此按 scale 缩放。
+          '--pet-mood-scale': String(scale),
         } as CSSProperties}
       >
         <button
@@ -716,6 +799,16 @@ export function DesktopPetView() {
             backgroundSize: `${PET_SPRITESHEET_WIDTH * scale}px ${PET_SPRITESHEET_HEIGHT * scale}px`,
           }}
           type="button"
+        />
+        {/* 动效层：position:absolute inset:0 + z-index:2，在 sprite 上方、stage 内部。
+            mood class 由渲染层拼接，CSS 驱动汗滴/脉冲/充能动画。
+            不挂 stage 本体（stage 已有 bounce）；不挂 sprite（transform 每帧被帧时钟覆写）。 */}
+        <span
+          ref={fxRef}
+          aria-hidden="true"
+          className={quotaMoodEnabled && moodResult
+            ? `desktop-pet-fx pet-mood-${resetFlashKey ? 'resetting' : moodResult.mood}`
+            : 'desktop-pet-fx'}
         />
       </div>
     </div>

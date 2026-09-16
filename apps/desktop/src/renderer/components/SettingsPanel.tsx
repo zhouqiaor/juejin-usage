@@ -311,6 +311,7 @@ function DesktopPetSettings({
   const [quotaAlertEnabled, setQuotaAlertEnabled] = useState(false);
   const [quotaAlertThreshold, setQuotaAlertThreshold] = useState<80 | 90 | 95>(90);
   const [quotaAlertCooldownMin, setQuotaAlertCooldownMin] = useState(30);
+  const [quotaMoodEnabled, setQuotaMoodEnabled] = useState(true);
   const [quotaBubbleMenuOpen, setQuotaBubbleMenuOpen] = useState(false);
   const [quotaThresholdMenuOpen, setQuotaThresholdMenuOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
@@ -326,6 +327,7 @@ function DesktopPetSettings({
     quotaAlertEnabled?: boolean;
     quotaAlertThreshold?: 80 | 90 | 95;
     quotaAlertCooldownMin?: number;
+    quotaMoodEnabled?: boolean;
   }>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -368,6 +370,7 @@ function DesktopPetSettings({
         quotaAlertEnabled: boolean;
         quotaAlertThreshold: 80 | 90 | 95;
         quotaAlertCooldownMin: number;
+        quotaMoodEnabled: boolean;
       },
       skipMotion = false,
     ) => {
@@ -385,6 +388,7 @@ function DesktopPetSettings({
       setQuotaAlertEnabled(pref.quotaAlertEnabled);
       setQuotaAlertThreshold(pref.quotaAlertThreshold);
       setQuotaAlertCooldownMin(pref.quotaAlertCooldownMin);
+      setQuotaMoodEnabled(pref.quotaMoodEnabled);
     };
 
     void window.tud
@@ -462,6 +466,7 @@ function DesktopPetSettings({
     quotaAlertEnabled?: boolean;
     quotaAlertThreshold?: 80 | 90 | 95;
     quotaAlertCooldownMin?: number;
+    quotaMoodEnabled?: boolean;
   }) => {
     try {
       const saved = await window.tud.setDesktopPetPreferences(changes);
@@ -476,6 +481,7 @@ function DesktopPetSettings({
       setQuotaAlertEnabled(saved.quotaAlertEnabled);
       setQuotaAlertThreshold(saved.quotaAlertThreshold);
       setQuotaAlertCooldownMin(saved.quotaAlertCooldownMin);
+      setQuotaMoodEnabled(saved.quotaMoodEnabled);
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : '更新桌面宠物设置失败',
@@ -495,6 +501,7 @@ function DesktopPetSettings({
     quotaAlertEnabled?: boolean;
     quotaAlertThreshold?: 80 | 90 | 95;
     quotaAlertCooldownMin?: number;
+    quotaMoodEnabled?: boolean;
   }) => {
     pendingPreferenceChanges.current = {
       ...pendingPreferenceChanges.current,
@@ -873,6 +880,25 @@ function DesktopPetSettings({
               </Description>
             </NumberField>
           )}
+          <Checkbox
+            id="desktop-pet-quota-mood-enabled"
+            isDisabled={petControlsDisabled}
+            isSelected={quotaMoodEnabled}
+            onChange={(checked) => {
+              setQuotaMoodEnabled(checked);
+              void savePetPreferences({ quotaMoodEnabled: checked });
+            }}
+          >
+            <Checkbox.Content>
+              <Checkbox.Control>
+                <Checkbox.Indicator />
+              </Checkbox.Control>
+              用宠物状态表现套餐余量
+            </Checkbox.Content>
+            <Description>
+              宠物会随套餐余量呈现紧张、告急等状态；仅为本地纯动画表现，不播放音效。
+            </Description>
+          </Checkbox>
           <Checkbox
             id="desktop-pet-quota-alert-enabled"
             isDisabled={petControlsDisabled}

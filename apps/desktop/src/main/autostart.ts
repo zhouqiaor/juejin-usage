@@ -58,6 +58,8 @@ export interface DesktopPetPref {
   quotaAlertThreshold: QuotaAlertThreshold;
   /** 同一窗口两次告警的最小间隔（分钟），5–360。 */
   quotaAlertCooldownMin: number;
+  /** 宠物情绪表现总开关：随套餐余量呈现紧张/告急等状态（纯 CSS，无音效）。 */
+  quotaMoodEnabled: boolean;
 }
 
 export const DEFAULT_DESKTOP_PET_SCALE = 0.5;
@@ -71,6 +73,7 @@ export const DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN = 5;
 export const DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED = false;
 export const DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD: QuotaAlertThreshold = 90;
 export const DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN = 30;
+export const DEFAULT_DESKTOP_PET_QUOTA_MOOD_ENABLED = true;
 
 interface DesktopPrefs {
   openAtLogin: boolean;
@@ -166,6 +169,9 @@ async function readPrefsFile(): Promise<DesktopPrefs | null> {
             )
               ? desktopPet.quotaAlertCooldownMin
               : DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN,
+            quotaMoodEnabled: typeof desktopPet.quotaMoodEnabled === 'boolean'
+              ? desktopPet.quotaMoodEnabled
+              : DEFAULT_DESKTOP_PET_QUOTA_MOOD_ENABLED,
           }
         : undefined,
     };
@@ -304,6 +310,7 @@ export async function loadDesktopPetPref(): Promise<DesktopPetPref> {
     quotaAlertEnabled: DEFAULT_DESKTOP_PET_QUOTA_ALERT_ENABLED,
     quotaAlertThreshold: DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD,
     quotaAlertCooldownMin: DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN,
+    quotaMoodEnabled: DEFAULT_DESKTOP_PET_QUOTA_MOOD_ENABLED,
   };
 }
 

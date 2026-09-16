@@ -23,6 +23,8 @@
     "src/shared/pet-quota-integration.test.ts",
     "src/shared/pet-quota-providers.ts",
     "src/shared/pet-quota-providers.test.ts",
+    "src/shared/pet-mood.ts",
+    "src/shared/pet-mood.test.ts",
     "src/shared/auto-update.ts",
     "src/shared/auto-update.test.ts",
     "src/main/desktop-pet-scanner.ts",

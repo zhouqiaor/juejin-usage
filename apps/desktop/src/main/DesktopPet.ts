@@ -9,6 +9,7 @@ import {
   DEFAULT_DESKTOP_PET_QUOTA_ALERT_THRESHOLD,
   DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_INTERVAL_MIN,
   DEFAULT_DESKTOP_PET_QUOTA_BUBBLE_MODE,
+  DEFAULT_DESKTOP_PET_QUOTA_MOOD_ENABLED,
   DEFAULT_DESKTOP_PET_SCALE,
   isQuotaBubbleMode,
   loadDesktopPetPref,
@@ -781,6 +782,7 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
       | 'quotaAlertEnabled'
       | 'quotaAlertThreshold'
       | 'quotaAlertCooldownMin'
+      | 'quotaMoodEnabled'
     >>;
     const scale = typeof next.scale === 'number' && next.scale >= 0.35 && next.scale <= 0.75
       ? next.scale : current.scale ?? DEFAULT_DESKTOP_PET_SCALE;
@@ -823,6 +825,9 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
       && next.quotaAlertCooldownMin <= 360
       ? next.quotaAlertCooldownMin
       : current.quotaAlertCooldownMin ?? DEFAULT_DESKTOP_PET_QUOTA_ALERT_COOLDOWN_MIN;
+    const quotaMoodEnabled = typeof next.quotaMoodEnabled === 'boolean'
+      ? next.quotaMoodEnabled
+      : current.quotaMoodEnabled ?? DEFAULT_DESKTOP_PET_QUOTA_MOOD_ENABLED;
     const saved = await saveDesktopPetPref({
       ...current,
       scale,
@@ -836,6 +841,7 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
       quotaAlertEnabled,
       quotaAlertThreshold,
       quotaAlertCooldownMin,
+      quotaMoodEnabled,
     });
     sendPreferences(saved);
     await syncDesktopPet();

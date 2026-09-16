@@ -277,3 +277,311 @@ body,
 .pet-alert-bounce {
   animation: pet-alert-bounce-kf 0.72s ease-in-out infinite;
 }
+
+/* ============================================================================
+ * pet-mood M0 —— 套餐余量 → 宠物情绪的纯 CSS 七态（零新增美术资产）。
+ *
+ * 每 mood = 「stage 上的 mood class 覆盖 --pet-glow-*（情绪色，::before 光晕
+ * 自动跟随；必须 !important 才能压过 stage 内联注入的宠物包原色）」+「内层
+ * .desktop-pet-sprite 上 palette 无关的 filter / 独立变换长属性 / ::after 装扮」。
+ * filter 与 rotate/translate 一律只挂内层精灵：alpha 像素穿透与点击命中盒读
+ * 的是精灵原图，stage 命中盒/主进程拖拽都不受影响。禁用 hue-rotate——三只宠
+ * 原色相不同，统一色相旋转会把蓝宠/绿宠染脏。
+ * Windows DWM 会把 blur/近黑大面积合成成不透明矩形（见上方 win 注释），本段
+ * 只作用于精灵自身像素与小尺寸伪元素，不引入 blur/暗底；glow 变量覆盖在
+ * Windows 下无光晕可染时，语义靠 sprite filter + 伪元素 + 既有 bounce 传达。
+ * ::before 是静态 glow，本段一律用 ::after（七态互斥，一个伪元素按 class 切）。
+ * healthy 无规则（= 基线外观）。
+ *
+ * 尺度：stage 实 px = 192/208 × scale（getDesktopPetLayout，默认 0.5，允许
+ * 0.35–0.75），但伪元素与独立变换属性不在精灵 background 的缩放链里，固定 px
+ * 会在 0.5 下相对大一倍。故所有装饰 px（问号字号、汗珠宽高、ring 边宽、趴窝
+ * 位移）一律 calc(基准px * var(--pet-mood-scale, 1))，基准按 scale=1 的原型
+ * 取值；纯 % 定位与 rotate 角度不缩放。变量由 DesktopPetView 在 stage 内联注入。
+ * ========================================================================== */
+
+/* ---- loaded：轻微压暗降饱和。「降速」是帧时钟职责（idle 间隔 ×1.25，
+   180ms→225ms，见 DesktopPetView 的 LOADED_MOOD_FRAME_FACTOR），CSS 不碰时长。 */
+.desktop-pet-stage.pet-mood-loaded .desktop-pet-sprite {
+  filter: brightness(0.96) saturate(0.9);
+}
+
+/* ---- tense：暖琥珀走 glow 变量（不做全局 hue-rotate），克制汗珠 ----------- */
+.desktop-pet-stage.pet-mood-tense {
+  --pet-glow-primary: #ff9a3c !important;
+  --pet-glow-accent: #ffe08a !important;
+}
+.desktop-pet-stage.pet-mood-tense .desktop-pet-sprite {
+  filter: saturate(1.12) brightness(1.03);
+}
+.desktop-pet-stage.pet-mood-tense .desktop-pet-sprite::after {
+  content: "";
+  position: absolute;
+  top: 9%;
+  right: 26%;
+  width: calc(7px * var(--pet-mood-scale, 1));
+  height: calc(10px * var(--pet-mood-scale, 1));
+  border-radius: 70% 30% 60% 40%;
+  background: radial-gradient(circle at 35% 30%, #eaf6ff, #8fc1ec 70%);
+  opacity: 0.85;
+  pointer-events: none;
+  animation: pet-mood-sweat-kf 1.6s ease-in-out infinite;
+}
+@keyframes pet-mood-sweat-kf {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateY(4px);
+    opacity: 0.95;
+  }
+}
+
+/* ---- alerting：红系 glow + 红色轮廓光。注意：mood class 不挂 bounce
+   动画——跳动只由 .pet-alert-bounce（受告警 pref 闸门）驱动，默认组合
+   （mood 开/告警关）下只变红不跳，两表现层正交（方案 §1.5）。 -------------- */
+.desktop-pet-stage.pet-mood-alerting {
+  --pet-glow-primary: #f04142 !important;
+  --pet-glow-accent: #ff8a8a !important;
+}
+.desktop-pet-stage.pet-mood-alerting .desktop-pet-sprite {
+  filter:
+    saturate(1.35)
+    contrast(1.05)
+    brightness(1.03)
+    drop-shadow(0 0 8px rgb(240 65 66 / 0.55));
+}
+
+/* ---- exhausted：灰度 + 趴窝。rotate/translate 用独立变换长属性，不碰帧时钟
+   每帧内联覆写的 transform（click 坏行镜像 scaleX(-1) 可正常叠加）；只挂内层。 */
+.desktop-pet-stage.pet-mood-exhausted {
+  --pet-glow-primary: #6b7280 !important;
+  --pet-glow-accent: #9ca3af !important;
+}
+.desktop-pet-stage.pet-mood-exhausted .desktop-pet-sprite {
+  filter: saturate(0.1) brightness(0.9);
+  rotate: -7deg;
+  /* rotate 角度不随 scale；位移按 scale 缩放（伪变换不跟精灵 background）。 */
+  translate: 0 calc(6px * var(--pet-mood-scale, 1));
+}
+
+/* ---- resetting：1.2s 一次的蓝白充能闪光（reset 边沿触发，class 由渲染层
+   setTimeout 按时长摘除；去重靠 pet-mood 纯函数的 lastResetFireKey）。 -------- */
+.desktop-pet-stage.pet-mood-resetting {
+  --pet-glow-primary: #7cc7ff !important;
+  --pet-glow-accent: #ffffff !important;
+}
+@keyframes pet-mood-reset-flash-kf {
+  0% {
+    filter: brightness(1) saturate(1);
+  }
+  25% {
+    filter:
+      brightness(1.75)
+      saturate(1.3)
+      drop-shadow(0 0 14px rgb(124 199 255 / 0.95));
+  }
+  100% {
+    filter: brightness(1) saturate(1);
+  }
+}
+@keyframes pet-mood-reset-ring-kf {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.78);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
+  }
+}
+.desktop-pet-stage.pet-mood-resetting .desktop-pet-sprite {
+  animation: pet-mood-reset-flash-kf 1.2s ease-out 1;
+}
+.desktop-pet-stage.pet-mood-resetting .desktop-pet-sprite::after {
+  content: "";
+  position: absolute;
+  inset: 18% 10%;
+  border-radius: 50%;
+  border: calc(3px * var(--pet-mood-scale, 1)) solid rgb(140 205 255 / 0.85);
+  opacity: 0;
+  pointer-events: none;
+  animation: pet-mood-reset-ring-kf 1.2s ease-out 1;
+}
+
+/* ---- unknown：半透明 + 弱化灰 glow + 问号。必须区别于 exhausted 的灰度趴窝：
+   「没数据」不是「耗尽」（mapper 合成 not-configured/stale → 纯函数判 unknown）。 */
+.desktop-pet-stage.pet-mood-unknown {
+  --pet-glow-primary: #8a8f99 !important;
+  --pet-glow-accent: #b6bac3 !important;
+}
+.desktop-pet-stage.pet-mood-unknown .desktop-pet-sprite {
+  opacity: 0.45;
+  filter: saturate(0.35);
+}
+.desktop-pet-stage.pet-mood-unknown .desktop-pet-sprite::after {
+  content: "?";
+  position: absolute;
+  top: -2%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: calc(44px * var(--pet-mood-scale, 1));
+  font-weight: 800;
+  line-height: 1;
+  color: #8a8f99;
+  opacity: 0.85;
+  pointer-events: none;
+  /* 深/浅壁纸上都可读；不用大面积暗底（Windows DWM 事故，见文件头注释）。 */
+  text-shadow: 0 1px 2px rgb(255 255 255 / 0.65);
+}
+
+/* 宠物窗只加载 pet.css（index.css 的全局 reduced-motion 块对它无效），降级必须
+   本文件自配；顺手给既有的 .pet-alert-bounce 补上它原本缺失的降级（方案 §1.7）。
+   resetting 保留静态提亮（1.2s class 生命周期照旧，只是不动画）。 */
+@media (prefers-reduced-motion: reduce) {
+  .pet-alert-bounce,
+  .desktop-pet-stage.pet-mood-tense .desktop-pet-sprite::after,
+  .desktop-pet-stage.pet-mood-resetting .desktop-pet-sprite,
+  .desktop-pet-stage.pet-mood-resetting .desktop-pet-sprite::after {
+    animation: none;
+  }
+  .desktop-pet-stage.pet-mood-resetting .desktop-pet-sprite {
+    filter: brightness(1.15);
+  }
+}
+
+/* ============================================================================
+ * pet-mood M1 —— 动效节点（.desktop-pet-fx）+ 三个 mood 的 CSS 微特效。
+ *
+ * 节点挂在 .desktop-pet-stage 内部、button.desktop-pet-sprite 之后，
+ * position:absolute inset:0 + z-index:2，始终在精灵上方。
+ * 三个特效全用纯 CSS（汗滴/脉冲/充能都是简单几何，lottie-web 已装但
+ * 本期 CSS 方案足够轻量，无需引入 JSON 动画文件）。
+ *
+ * 动效只在 mood 启用时显示（quotaMoodEnabled=true 且 moodResult 有值），
+ * class 由 DesktopPetView 渲染层拼接，不需要额外 pref 闸门。
+ *
+ * Windows DWM 规避：动效不超 stage 范围，不使用 blur/大面积暗底。
+ * ========================================================================== */
+
+/* ---- Base: 动效节点容器 -------------------------------------------- */
+.desktop-pet-fx {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+/* ---- tense → 汗滴（左额角，与既有的 ::after 汗珠位置错开） ----------- */
+/* 汗珠路径：从左上方向右下方滴落，形状为泪滴 */
+@keyframes pet-fx-sweat-kf {
+  0%,
+  100% {
+    transform: translateY(0) scaleX(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translateY(7px) scaleX(0.68);
+    opacity: 0.95;
+  }
+}
+.desktop-pet-fx.pet-mood-tense::before {
+  content: "";
+  position: absolute;
+  top: 12%;
+  left: 20%;
+  width: calc(5px * var(--pet-mood-scale, 1));
+  height: calc(9px * var(--pet-mood-scale, 1));
+  border-radius: 55% 45% 65% 35%;
+  background: radial-gradient(circle at 35% 30%, #eaf6ff 0%, #8fc1ec 70%);
+  animation: pet-fx-sweat-kf 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ---- alerting → 红色脉冲光环 ----------------------------------------- */
+@keyframes pet-fx-pulse-ring-kf {
+  0% {
+    box-shadow:
+      0 0 0 0 rgb(240 65 66 / 0.65),
+      0 0 6px 2px rgb(240 65 66 / 0.35);
+  }
+  70% {
+    box-shadow:
+      0 0 0 14px rgb(240 65 66 / 0),
+      0 0 6px 2px rgb(240 65 66 / 0);
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 rgb(240 65 66 / 0),
+      0 0 6px 2px rgb(240 65 66 / 0);
+  }
+}
+.desktop-pet-fx.pet-mood-alerting {
+  border-radius: 50%;
+  animation: pet-fx-pulse-ring-kf 1.4s ease-out infinite;
+  background: transparent;
+}
+
+/* ---- resetting → 充能向上粒子（fx 节点自身是脉冲环的载体，追加 ::before 粒子） */
+@keyframes pet-fx-charge-particle-kf {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(calc(-28px * var(--pet-mood-scale, 1))) scale(0.2);
+    opacity: 0;
+  }
+}
+@keyframes pet-fx-charge-glow-kf {
+  0% {
+    box-shadow:
+      0 0 0 0 rgb(124 199 255 / 0.6),
+      0 0 8px 3px rgb(124 199 255 / 0.3);
+  }
+  70% {
+    box-shadow:
+      0 0 0 10px rgb(124 199 255 / 0),
+      0 0 8px 3px rgb(124 199 255 / 0);
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 rgb(124 199 255 / 0),
+      0 0 8px 3px rgb(124 199 255 / 0);
+  }
+}
+.desktop-pet-fx.pet-mood-resetting {
+  border-radius: 50%;
+  animation: pet-fx-charge-glow-kf 1.2s ease-out infinite;
+  background: transparent;
+}
+.desktop-pet-fx.pet-mood-resetting::before {
+  content: "";
+  position: absolute;
+  bottom: 22%;
+  left: 50%;
+  margin-left: calc(-2px * var(--pet-mood-scale, 1));
+  width: calc(4px * var(--pet-mood-scale, 1));
+  height: calc(4px * var(--pet-mood-scale, 1));
+  border-radius: 50%;
+  background: #7cc7ff;
+  box-shadow: 0 0 4px 1px rgb(124 199 255 / 0.8);
+  animation:
+    pet-fx-charge-particle-kf 0.85s ease-out infinite,
+    pet-fx-charge-particle-kf 0.85s ease-out 0.28s infinite,
+    pet-fx-charge-particle-kf 0.85s ease-out 0.56s infinite;
+  pointer-events: none;
+}
+
+/* 降级：reduced-motion 下关闭 M1 动效 */
+@media (prefers-reduced-motion: reduce) {
+  .desktop-pet-fx.pet-mood-tense::before,
+  .desktop-pet-fx.pet-mood-alerting,
+  .desktop-pet-fx.pet-mood-resetting,
+  .desktop-pet-fx.pet-mood-resetting::before {
+    animation: none;
+  }
+}

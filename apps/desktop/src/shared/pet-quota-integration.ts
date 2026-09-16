@@ -4,6 +4,7 @@
 // 军规（exec.md §7）：把「会出错」的归一化映射放在核心层单测，视图组件只做
 // I/O 与编排。不 import React/Electron/DOM。
 import type { ArkSubscriptionSnapshot } from './ark-subscription.js';
+import type { PetMoodInput } from './pet-mood.js';
 import type { PetQuotaAggregate } from './pet-quota-providers.js';
 import type { QuotaWindow } from './pet-quota-alert.js';
 
@@ -52,4 +53,47 @@ export function aggregateToQuotaWindows(aggregate: PetQuotaAggregate): QuotaWind
           : null,
     })),
   );
+}
+
+/**
+ * 多 provider 聚合快照 → pet-mood 情绪层输入（M0 只取 Ark）。
+ *
+ * 与 aggregateToQuotaWindows 的关键差异（不可互喂，见 pet-m0 接线方案 §1.2）：
+ * - resetsAt 保持 epoch **秒**（直接读 resetsAtSec），pet-mood 用 nowSec，
+ *   不做 ×1000/÷1000 往返；
+ * - 丢弃 'other' 窗口（cursor plan / qoder Credits 等），情绪只认 5h/weekly/monthly；
+ * - PetQuotaAggregate 没有全局 status/stale，这里合成：过滤后无 section
+ *   （Ark 未配置/token-only 账号整体被归一化层跳过）→ 'not-configured'
+ *   （pet-mood 据此判 unknown，「没数据」绝不演成「耗尽」）；stale 取过滤后
+ *   全部 section 皆 stale——有任一 fresh 即不报 unknown。
+ *
+ * 返回全新对象/数组（窗口也是新映射出来的）：QA 临时改百分比或渲染层任何
+ * 误改都不会回灌 aggregate、污染气泡展示。
+ */
+export function aggregateToMoodInput(
+  aggregate: PetQuotaAggregate,
+  providers: readonly string[] = [ARK_PROVIDER],
+): Pick<PetMoodInput, 'windows' | 'status' | 'stale'> {
+  const sections = aggregate.sections.filter((section) => providers.includes(section.provider));
+  return {
+    status: sections.length > 0 ? 'ready' : 'not-configured',
+    stale: sections.length > 0 && sections.every((section) => section.stale),
+    windows: sections.flatMap((section) =>
+      section.windows.flatMap((win) => {
+        if (
+          win.kind !== 'five-hour'
+          && win.kind !== 'weekly'
+          && win.kind !== 'monthly'
+        ) {
+          return [];
+        }
+        return [{
+          provider: section.provider,
+          id: win.kind,
+          usedPercent: win.usedPercent,
+          resetsAt: win.resetsAtSec,
+        }];
+      }),
+    ),
+  };
 }

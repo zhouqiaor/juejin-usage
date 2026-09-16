@@ -128,6 +128,7 @@ declare global {
         quotaAlertEnabled: boolean;
         quotaAlertThreshold: 80 | 90 | 95;
         quotaAlertCooldownMin: number;
+        quotaMoodEnabled: boolean;
       }>;
       setDesktopPetEnabled: (enabled: boolean) => Promise<boolean>;
       getDesktopPetCatalog: () => Promise<import('../shared/desktop-pet-catalog').DesktopPetCatalog>;
@@ -161,6 +162,7 @@ declare global {
         quotaAlertEnabled: boolean;
         quotaAlertThreshold: 80 | 90 | 95;
         quotaAlertCooldownMin: number;
+        quotaMoodEnabled: boolean;
       }>;
       setDesktopPetPreferences: (changes: {
         scale?: number;
@@ -174,6 +176,7 @@ declare global {
         quotaAlertEnabled?: boolean;
         quotaAlertThreshold?: 80 | 90 | 95;
         quotaAlertCooldownMin?: number;
+        quotaMoodEnabled?: boolean;
       }) => Promise<{
         enabled: boolean;
         selectedPetId: string;
@@ -189,6 +192,7 @@ declare global {
         quotaAlertEnabled: boolean;
         quotaAlertThreshold: 80 | 90 | 95;
         quotaAlertCooldownMin: number;
+        quotaMoodEnabled: boolean;
       }>;
       setDesktopPetMouseIgnored: (ignored: boolean) => void;
       beginDesktopPetDrag: () => void;
@@ -212,6 +216,7 @@ declare global {
         quotaAlertEnabled: boolean;
         quotaAlertThreshold: 80 | 90 | 95;
         quotaAlertCooldownMin: number;
+        quotaMoodEnabled: boolean;
       }) => void) => () => void;
       onMaximized: (callback: (isMaximized: boolean) => void) => () => void;
       api: {

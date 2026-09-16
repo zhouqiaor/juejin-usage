@@ -65,6 +65,7 @@ interface DesktopPetPreferencesValue {
   quotaAlertEnabled: boolean;
   quotaAlertThreshold: QuotaAlertThreshold;
   quotaAlertCooldownMin: number;
+  quotaMoodEnabled: boolean;
 }
 
 type DesktopPetPreferenceChanges = Partial<Omit<DesktopPetPreferencesValue, 'enabled' | 'selectedPetId' | 'position'>>;
@@ -350,6 +351,7 @@ const tudApi = {
         quotaAlertEnabled?: unknown;
         quotaAlertThreshold?: unknown;
         quotaAlertCooldownMin?: unknown;
+        quotaMoodEnabled?: unknown;
       };
       if (typeof value.enabled !== 'boolean' || typeof value.selectedPetId !== 'string' || typeof value.scale !== 'number' || typeof value.frameIntervalMs !== 'number' || typeof value.autoMoveEnabled !== 'boolean' || typeof value.autoMoveIntervalMinutes !== 'number') return;
       const syncFeedbackEnabled = typeof value.syncFeedbackEnabled === 'boolean'
@@ -385,6 +387,9 @@ const tudApi = {
         && value.quotaAlertCooldownMin <= 360
           ? value.quotaAlertCooldownMin
           : 30;
+      const quotaMoodEnabled = typeof value.quotaMoodEnabled === 'boolean'
+        ? value.quotaMoodEnabled
+        : true;
       callback({
         enabled: value.enabled,
         selectedPetId: value.selectedPetId,
@@ -399,6 +404,7 @@ const tudApi = {
         quotaAlertEnabled,
         quotaAlertThreshold,
         quotaAlertCooldownMin,
+        quotaMoodEnabled,
         ...(typeof value.position?.x === 'number' && typeof value.position.y === 'number'
           ? { position: { x: value.position.x, y: value.position.y } }
           : {}),
