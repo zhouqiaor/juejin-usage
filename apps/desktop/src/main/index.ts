@@ -1,4 +1,8 @@
 import { app, BrowserWindow, clipboard, ipcMain, nativeImage, nativeTheme } from 'electron';
+// [fork dev] 长期开发模式：dev 时开启 CDP（默认 9222），production 时关闭。
+if (process.env.NODE_ENV === 'development' || process.env.TUD_DEV_CDP === '1') {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env.TUD_DEV_CDP_PORT ?? '9222');
+}
 import {
   initAutostartOnLaunch,
   loadThemeMode,
