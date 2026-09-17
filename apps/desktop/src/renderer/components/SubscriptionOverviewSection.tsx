@@ -2,6 +2,9 @@
 // renderer/components/SubscriptionOverviewSection.tsx -- shared subscription grid
 // Used by both TrayPopoverView (macOS) and DashboardPage (Windows / cross-platform).
 import { useState } from 'react';
+import { ArrowsRotateRight } from '@gravity-ui/icons';
+import { Button, Tooltip } from '@heroui/react';
+import { cn } from '@/lib/utils';
 import { CodexSubscriptionCard } from './CodexSubscriptionCard';
 import { ClaudeSubscriptionCard } from './ClaudeSubscriptionCard';
 import { CursorSubscriptionCard } from './CursorSubscriptionCard';
@@ -31,33 +34,30 @@ export function SubscriptionOverviewSection() {
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-foreground">订阅额度</h3>
-        <button
-          aria-label="刷新订阅额度"
-          className="flex h-7 items-center gap-1 rounded-medium px-2 text-xs text-muted transition hover:bg-default-100 disabled:opacity-50"
-          disabled={refreshing}
-          type="button"
-          onClick={onRefresh}
-        >
-          <svg
-            aria-hidden="true"
-            className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
+    <div className="space-y-1.5">
+      <div className="flex justify-end">
+        <Tooltip closeDelay={80} delay={100}>
+          <Button
+            aria-label="刷新订阅额度"
+            className="h-5 min-h-5 w-5 min-w-5 rounded-full p-0 text-muted"
+            isDisabled={refreshing}
+            isIconOnly
+            size="sm"
+            variant="ghost"
+            onPress={onRefresh}
           >
-            <path
-              d="M4 4v6h6M20 20v-6h-6M20 8a8 8 0 00-14.94-3M4 16a8 8 0 0014.94 3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+            <ArrowsRotateRight
+              className={cn('size-3.5', refreshing && 'animate-spin')}
             />
-          </svg>
-          <span>刷新</span>
-        </button>
+          </Button>
+          <Tooltip.Content
+            className="px-2 py-1 text-xs"
+            placement="top"
+            showArrow
+          >
+            刷新订阅额度
+          </Tooltip.Content>
+        </Tooltip>
       </div>
       <section aria-label="订阅额度" className="grid grid-cols-2 gap-2.5 empty:hidden">
         <CodexSubscriptionCard />
