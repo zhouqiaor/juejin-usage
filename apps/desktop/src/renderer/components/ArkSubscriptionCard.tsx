@@ -61,22 +61,33 @@ export function ArkSubscriptionCard() {
             resetLabel: formatResetCountdown(w.resetsAt, nowSec) ?? undefined,
           }));
           const showTokenBlock = snapshot.tokenPacks.length > 0 || Boolean(snapshot.tokenPacksError);
-          // 档位（官方英文名，如 Medium）显示在标题栏：「火山方舟 Agent Plan · Medium」
+          // 副标题：Agent 档位按官方英文名规范化（small→Small），与「Agent Plan ·」组合
           const planSubtitle = arkPlanSubtitle(snapshot.planKind, snapshot.planLabel);
-          const planTier = planSubtitle?.replace(/^[^·]*·\s*/, '').trim() || null;
           setData({
-            title: planTier
-              ? `${arkPlanTitle(snapshot.planKind)} · ${planTier}`
-              : arkPlanTitle(snapshot.planKind),
+            title: arkPlanTitle(snapshot.planKind), // '火山方舟 Agent Plan' / '火山方舟 Coding Plan' / '火山方舟'
             icon: <SubscriptionBrandIcon brand="volcengine" />,
             metrics,
-            // token-only 账号靠 footer 保住卡片框架（见 SubscriptionUsageCard 的空 metrics 例外）
-            footer: showTokenBlock ? (
-              <ArkTokenPacksBlock
-                packs={snapshot.tokenPacks}
-                errorText={snapshot.tokenPacksError}
-              />
-            ) : undefined,
+            // planLabel 是套餐档位，作 10px 小字展示，不拼进标题撑宽；
+            // token-only 账号也靠 footer 保住卡片框架。
+            footer:
+              planSubtitle || showTokenBlock ? (
+                <>
+                  {planSubtitle ? (
+                    <p
+                      className="text-[10px] leading-4 text-muted"
+                      title={`套餐档位：${planSubtitle}`}
+                    >
+                      {planSubtitle}
+                    </p>
+                  ) : null}
+                  {showTokenBlock ? (
+                    <ArkTokenPacksBlock
+                      packs={snapshot.tokenPacks}
+                      errorText={snapshot.tokenPacksError}
+                    />
+                  ) : null}
+                </>
+              ) : undefined,
             stale: snapshot.stale,
             fetchedAt: snapshot.fetchedAt,
             errorMessage: snapshot.message,
