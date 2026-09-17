@@ -117,7 +117,7 @@ export function ArkTokenPacksBlock({ packs, errorText = null }: ArkTokenPacksBlo
         <span className="text-[10px] font-semibold text-muted">
           免费推理额度 · {modelCount} 个模型（粗口径汇总）
         </span>
-        <span className="shrink-0 pl-2 text-[10px] font-medium text-[#2b7eff]">
+        <span className="shrink-0 pl-2 text-[10px] font-medium text-accent">
           {expanded ? '收起 ▴' : '展开 ▾'}
         </span>
       </button>
