@@ -26,15 +26,13 @@ import type {
   PetQuotaCompactRow,
   PetProviderKey,
   PetQuotaWindow,
+  SecondaryRowView,
 } from '../../shared/pet-quota-providers';
 import {
   formatCompactBubbleRow,
+  projectSecondaryRowsFromWindows,
   projectToCompactRows,
 } from '../../shared/pet-quota-providers';
-import {
-  formatResetCountdownShort,
-  formatResetCountdownZh,
-} from '../../shared/subscription-reset';
 import { useNowTick } from '../lib/useNowTick';
 
 const COLOR_TEXT = '#171717';
@@ -53,39 +51,10 @@ function remainingColor(remainingPercent: number): string {
   return COLOR_TEXT;
 }
 
-/** 次级窗口行的渲染投影（局部纯函数，不导出；7d/30d 等 primary 之外的窗口）。 */
-interface SecondaryRowView {
-  label: string;
-  remainingPercent: number;
-  resetShort: string | null;
-  resetTitle: string | null;
-  ariaLabel: string;
-}
-
 /**
- * 把一家的非 primary 窗口（归一化层保证 primary 恒为 windows[0]，至多 3 个）
- * 投影成展开区小字行：剩余口径与 projectToCompactRows 一致（100 - usedPercent，
- * used 已在归一化层 clamp），短时刻/中文文案复用订阅卡同款格式化器。
+ * 次级窗口行的渲染投影：见 shared/pet-quota-providers.projectSecondaryRowsFromWindows
+ * 与 SecondaryRowView 类型；这里只负责把投影喂进 SecondaryWindowRow。
  */
-function projectSecondaryRows(
-  windows: readonly PetQuotaWindow[],
-  nowSec: number,
-): SecondaryRowView[] {
-  return windows.slice(1, 3).map((win) => {
-    const label = win.label.trim();
-    const remainingPercent = Math.round(100 - win.usedPercent);
-    const resetShort = formatResetCountdownShort(win.resetsAtSec, nowSec);
-    const resetZh = formatResetCountdownZh(win.resetsAtSec, nowSec);
-    const resetTitle = resetZh
-      ? label ? `${label} 窗口 ${resetZh}` : resetZh
-      : null;
-    const suffix = label ? `${label} 窗口剩余` : '剩余';
-    const ariaLabel = resetZh
-      ? `剩余 ${remainingPercent}%，${label ? `${label} 窗口 ` : ''}${resetZh}`
-      : `${suffix} ${remainingPercent}%`;
-    return { label, remainingPercent, resetShort, resetTitle, ariaLabel };
-  });
-}
 
 /** 9px 纯 CSS chevron：收起指向右（rotate(-45deg)），展开向下（rotate(45deg)）。 */
 function Chevron({ expanded }: { expanded: boolean }): JSX.Element {
@@ -203,7 +172,7 @@ function CompactProviderRow({
   const planHover = text.planLabel ? `${text.title} · ${text.planLabel}` : text.title;
   const rowTitle = text.resetTitle ? `${planHover}，${text.resetTitle}` : planHover;
 
-  const secondary = projectSecondaryRows(sectionWindows, nowSec);
+  const secondary = projectSecondaryRowsFromWindows(sectionWindows, nowSec);
   const expandable = secondary.length > 0;
   const regionId = `pet-quota-windows-${row.key}`;
 

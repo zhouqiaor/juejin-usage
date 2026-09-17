@@ -610,6 +610,53 @@ function nonEmptyLabel(value: string | null | undefined): string | null {
 }
 
 /**
+ * 气泡展开区次级窗口行（7d/30d 等 primary 之外的窗口）渲染投影。组件拿到
+ * 后直接喂 `SecondaryWindowRow` 渲染：剩余口径与 projectToCompactRows 一致
+ * （100 - usedPercent，used 已在归一化层 clamp），短时刻/中文文案复用订阅卡
+ * 同款格式化器。
+ */
+export interface SecondaryRowView {
+  label: string;
+  remainingPercent: number;
+  resetShort: string | null;
+  resetTitle: string | null;
+  ariaLabel: string;
+}
+
+/**
+ * 把一家的非 primary 窗口（归一化层保证 primary 恒为 windows[0]，至多 3 个）
+ * 投影成展开区小字行（5h 之外的窗口，至多 2 条 = windows.slice(1, 3)）：
+ * - 剩余 = round(100 - usedPercent)，与 projectToCompactRows 口径一致；
+ * - 短时刻 `HH:mm` / `MM-dd` / `YY-MM-dd` 走订阅卡同款格式化器（GMT+8）；
+ * - 完整中文进 resetTitle，悬浮 / aria-label 可读；
+ * - 纯函数：不读系统时钟、不修改入参 windows（slice 已是 copy）；
+ * - stale 透传：section.stale 由调用方/mood 层消费，本函数只读窗口字段，
+ *   对 stale 无感（不写回、不影响展开行为）。
+ *
+ * 命名 `FromWindows` 强调输入是 windows 数组（与 `projectToCompactRows`
+ * 接 `PetQuotaAggregate` 形成对照），避免调用方误传整段 section。
+ */
+export function projectSecondaryRowsFromWindows(
+  windows: readonly PetQuotaWindow[],
+  nowSec: number,
+): SecondaryRowView[] {
+  return windows.slice(1, 3).map((win) => {
+    const label = win.label.trim();
+    const remainingPercent = Math.round(100 - win.usedPercent);
+    const resetShort = formatResetCountdownShort(win.resetsAtSec, nowSec);
+    const resetZh = formatResetCountdownZh(win.resetsAtSec, nowSec);
+    const resetTitle = resetZh
+      ? label ? `${label} 窗口 ${resetZh}` : resetZh
+      : null;
+    const suffix = label ? `${label} 窗口剩余` : '剩余';
+    const ariaLabel = resetZh
+      ? `剩余 ${remainingPercent}%，${label ? `${label} 窗口 ` : ''}${resetZh}`
+      : `${suffix} ${remainingPercent}%`;
+    return { label, remainingPercent, resetShort, resetTitle, ariaLabel };
+  });
+}
+
+/**
  * 极简气泡行纯格式化（与 PetQuotaCompactRow 一一对应，可在 node:test 单测）：
  * - primaryLabel 恒显示，除非与 title 归一化后同名（如 Cursor 的 primary
  *   窗口标签就是 "Cursor"）——同名置 null，避免 `Cursor · Cursor`；

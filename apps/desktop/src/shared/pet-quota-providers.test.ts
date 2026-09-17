@@ -24,8 +24,10 @@ import {
   normalizeTraeSection,
   normalizeWorkBuddySection,
   orderProviderWindows,
+  projectSecondaryRowsFromWindows,
   projectToCompactRows,
   type PetProviderSnapshotEntry,
+  type PetQuotaWindow,
 } from './pet-quota-providers.js';
 
 const NOW_MS = 100_000_000_000;
@@ -680,4 +682,163 @@ test('disabled 快照在归一化层被丢弃：cursor/minimax/ark 均不出 sec
   const aggregate = buildPetQuotaAggregate(entries, NOW_MS);
   assert.equal(aggregate.sections.length, 0);
   assert.deepEqual(projectToCompactRows(aggregate), []);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// projectSecondaryRowsFromWindows — 气泡展开区次级窗口投影
+//   windows.slice(1, 3) = 跳过 primary、至多取 2 条；时间口径复用订阅卡。
+//   设计：组件不再做格式化，纯渲染；stale 由外层/mood 消费，本函数无感。
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** GMT+8 (year, month, day, hour, minute) → epoch 秒，与 subscription-reset 同源。 */
+function gmt8Sec(year: number, month: number, day: number, hour: number, minute: number): number {
+  return Math.floor((Date.UTC(year, month - 1, day, hour, minute) - 8 * HOUR * 1_000) / 1_000);
+}
+
+function win(
+  id: string,
+  label: string,
+  kind: PetQuotaWindow['kind'],
+  usedPercent: number,
+  resetsAtSec: number | null,
+): PetQuotaWindow {
+  return { id, label, kind, usedPercent, resetsAtSec, detail: null };
+}
+
+test('projectSecondaryRowsFromWindows: 三窗口家（5h/weekly/monthly）→ 2 条次级行', () => {
+  // 三连典型：Ark Agent Plan 5h/7d/30d，5h 是 primary，余下两条进展开区。
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  const rows = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 18, 0, 0)),
+    win('monthly', '30d', 'monthly', 5, gmt8Sec(2026, 10, 14, 8, 0)),
+  ], nowSec);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.label), ['7d', '30d']);
+  // 剩余 = round(100 - usedPercent)，7d 30% 用 → 剩 70。
+  assert.deepEqual(rows.map((r) => r.remainingPercent), [70, 95]);
+});
+
+test('projectSecondaryRowsFromWindows: 双窗口家 → 1 条；单窗口家 → 0 条', () => {
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  // 双窗口：primary 之外只剩 1 条。
+  const two = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 10, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 18, 0, 0)),
+  ], nowSec);
+  assert.equal(two.length, 1);
+  assert.equal(two[0]?.label, '7d');
+  assert.equal(two[0]?.remainingPercent, 70);
+
+  // 单窗口：slice(1, 3) 出来就是空数组 → 0 条 → 组件不渲染 chevron。
+  const one = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 10, gmt8Sec(2026, 9, 17, 16, 35)),
+  ], nowSec);
+  assert.deepEqual(one, []);
+
+  // 边界：空数组入参也返回空（不会因 windows[0] 读取而崩）。
+  assert.deepEqual(projectSecondaryRowsFromWindows([], nowSec), []);
+});
+
+test('projectSecondaryRowsFromWindows: 退化窗口家（Cursor 模型桶）原序透传不二次排序', () => {
+  // 归一化层已按 Cursor 的 sortOtherByUsage 排好（最紧张在前），本函数
+  // 只是 slice(1, 3)：若输入 Plan / Cursor / Other（按此顺序），输出即
+  // Cursor / Other，绝不再按 usedPercent 排序。
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  const rows = projectSecondaryRowsFromWindows([
+    win('cursor-models', 'Cursor', 'other', 80, null),   // primary，最紧张
+    win('other-models', 'Other', 'other', 40, null),
+    win('plan', 'Plan', 'other', 5, null),
+  ], nowSec);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r) => r.label), ['Other', 'Plan']);
+  // 即使 Other 已用 40% 高于 Plan 5%，也不交换——保持归一化层的决定。
+  assert.deepEqual(rows.map((r) => r.remainingPercent), [60, 95]);
+});
+
+test('projectSecondaryRowsFromWindows: 时刻三档（HH:mm / MM-dd / YY-MM-dd）+ null 不渲染', () => {
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  const rows = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, nowSec + HOUR), // primary，5h（占位即可）
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 17, 16, 35)),  // 同天 HH:mm
+    win('monthly', '30d', 'monthly', 5, gmt8Sec(2026, 9, 18, 0, 0)),  // 跨天 MM-dd
+    win('yearly', '1y', 'other', 10, gmt8Sec(2027, 1, 1, 0, 30)),     // 跨年 YY-MM-dd
+  ], nowSec);
+  assert.equal(rows.length, 3);
+  assert.deepEqual(rows.map((r) => r.resetShort), ['16:35', '09-18', '27-01-01']);
+  // resetTitle 中文形态：今天 / 今年跨天 / 跨年。
+  assert.equal(rows[0]?.resetTitle, '7d 窗口 今天 16:35 重置');
+  assert.equal(rows[1]?.resetTitle, '30d 窗口 09-18 00:00 重置');
+  assert.equal(rows[2]?.resetTitle, '1y 窗口 2027-01-01 00:30 重置');
+
+  // null 重置点：resetShort/resetTitle 均为 null（不挂「已过期」文案）。
+  const nullRows = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, null),
+    win('weekly', '7d', 'weekly', 30, null),
+  ], nowSec);
+  assert.equal(nullRows[0]?.resetShort, null);
+  assert.equal(nullRows[0]?.resetTitle, null);
+  // aria-label 不附「重置」尾巴。
+  assert.equal(nullRows[0]?.ariaLabel, '7d 窗口剩余 70%');
+});
+
+test('projectSecondaryRowsFromWindows: remainingPercent = round(100 - usedPercent) 四舍五入正确', () => {
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  // primary 之外只能取到 windows[1..2]（slice(1,3)），所以构造三连窗口
+  // 但把 round 行为集中在 primary 内做断言。再加一组退化 primary
+  // （仅 2 个非时间桶），覆盖另一组 round 边界。
+  const threeRows = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, null),     // primary
+    // 33.4 → 剩 66.6 → round → 67；与 projectToCompactRows 口径一致。
+    win('weekly', '7d', 'weekly', 33.4, null),
+    // 0.4 → 99.6 → round → 100。
+    win('monthly', '30d', 'monthly', 0.4, null),
+  ], nowSec);
+  assert.deepEqual(threeRows.map((r) => r.remainingPercent), [67, 100]);
+
+  // 双窗口退化：primary（已用 90） + 一条次级 33.5% → 66.5 → round → 67
+  // （JS Math.round 半值向上，66.5 → 67）。
+  const twoRows = projectSecondaryRowsFromWindows([
+    win('primary', 'Primary', 'other', 90, null),
+    win('secondary', 'Secondary', 'other', 33.5, null),
+  ], nowSec);
+  assert.deepEqual(twoRows.map((r) => r.remainingPercent), [67]);
+});
+
+test('projectSecondaryRowsFromWindows: 不修改入参 windows（immutable 断言）', () => {
+  // 入参保留 readonly：slice 已是 copy，本函数不在 windows 上写入，
+  // 调用方原数组引用与字段值一律不变。
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  const source = [
+    win('five-hour', '5h', 'five-hour', 90, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 18, 0, 0)),
+    win('monthly', '30d', 'monthly', 5, gmt8Sec(2026, 10, 14, 8, 0)),
+  ];
+  const snapshotBefore = source.map((w) => ({ ...w }));
+  projectSecondaryRowsFromWindows(source, nowSec);
+  assert.deepEqual(source, snapshotBefore);
+  // length 与元素顺序不变。
+  assert.equal(source.length, 3);
+  assert.equal(source[0]?.id, 'five-hour');
+  assert.equal(source[2]?.id, 'monthly');
+});
+
+test('projectSecondaryRowsFromWindows: stale 透传（函数对 stale 无感，仅文档）', () => {
+  // PetQuotaWindow 不携带 stale 字段，stale 在 section 上层。投影函数只
+  // 读窗口字段（label/usedPercent/resetsAtSec），对 stale 不读不写。
+  // 这里用一组常规输入验证：若窗口字段全在，输出与 stale 假想与否无关。
+  const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
+  const fresh = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 18, 0, 0)),
+  ], nowSec);
+  // 二次调用结果字节一致——stale 由调用方控制「不传窗口」或「替换为 placeholder」，
+  // 本函数不感知；这里仅证明函数是纯函数、可重复计算。
+  const again = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 18, 0, 0)),
+  ], nowSec);
+  assert.deepEqual(again, fresh);
+  assert.equal(fresh.length, 1);
+  assert.equal(fresh[0]?.label, '7d');
 });
