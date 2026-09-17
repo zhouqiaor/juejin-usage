@@ -47,6 +47,10 @@ import { registerWorkBuddySubscriptionIpc } from './workbuddy-subscription-ipc';
 import { registerSubscriptionKeysIpc } from './subscription-keys-ipc';
 import { registerArkSubscriptionIpc } from './ark-subscription-ipc';
 import {
+  ensureSubscriptionPrefsMigrated,
+  registerSubscriptionPrefsIpc,
+} from './subscription-prefs-ipc';
+import {
   localApiRequest,
   pokeSyncOnForeground,
   resumeLocalRuntimeWatchdog,
@@ -112,6 +116,7 @@ let disposeTraeSubscriptionIpc: (() => void) | null = null;
 let disposeWorkBuddySubscriptionIpc: (() => void) | null = null;
 let disposeSubscriptionKeysIpc: (() => void) | null = null;
 let disposeArkSubscriptionIpc: (() => void) | null = null;
+let disposeSubscriptionPrefsIpc: (() => void) | null = null;
 let currentThemeMode: ThemeMode = 'system';
 let currentTheme: Theme = 'light';
 let pendingDeepLinkUrl: string | null = null;
@@ -495,6 +500,14 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeWorkBuddySubscriptionIpc = registerWorkBuddySubscriptionIpc();
     disposeSubscriptionKeysIpc = registerSubscriptionKeysIpc();
     disposeArkSubscriptionIpc = registerArkSubscriptionIpc();
+    disposeSubscriptionPrefsIpc = registerSubscriptionPrefsIpc();
+    // 首次启动一次性可用性迁移（只读本机凭据，不发网络请求）；不阻塞窗口创建。
+    void ensureSubscriptionPrefsMigrated().catch((err) => {
+      console.error(
+        '[tud-desktop] subscription prefs migration failed:',
+        err instanceof Error ? err.message : err,
+      );
+    });
     try {
       await initAutostartOnLaunch();
     } catch (err) {
@@ -644,6 +657,8 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeSubscriptionKeysIpc = null;
     disposeArkSubscriptionIpc?.();
     disposeArkSubscriptionIpc = null;
+    disposeSubscriptionPrefsIpc?.();
+    disposeSubscriptionPrefsIpc = null;
     disposeAutoUpdate();
   });
 });

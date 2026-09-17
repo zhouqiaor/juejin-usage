@@ -14,6 +14,7 @@ import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
 import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
 import { formatResetCountdown } from '../../shared/subscription-reset';
+import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 
 const INITIAL_SNAPSHOT: MiniMaxSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -34,6 +35,8 @@ function formatCount(n: number | undefined): string {
 }
 
 export function MiniMaxSubscriptionCard() {
+  const subscriptionPrefs = useSubscriptionPrefs();
+  const enabled = subscriptionPrefs.minimax;
   const [snapshot, setSnapshot] = useState<MiniMaxSubscriptionSnapshot>(INITIAL_SNAPSHOT);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
@@ -59,6 +62,8 @@ export function MiniMaxSubscriptionCard() {
   }, []);
 
   useEffect(() => {
+    // 开关关 = 完全不拉取；开关广播到达后 effect 重跑即时显隐。
+    if (!enabled) return;
     void reload();
     const onFocus = () => void reload(true);
     const onRefresh = () => void reload(true);
@@ -68,7 +73,7 @@ export function MiniMaxSubscriptionCard() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener(SUBSCRIPTION_REFRESH_EVENT, onRefresh);
     };
-  }, [reload]);
+  }, [reload, enabled]);
 
   // reset 倒计时每 30s 重算一次（避免 stale 文案）
   useEffect(() => {
@@ -82,6 +87,9 @@ export function MiniMaxSubscriptionCard() {
     setRetrying(true);
     void reload(true).finally(() => setRetrying(false));
   }, [reload]);
+
+  // 开关关闭：所有 hook（含下方倒计时组件/handleRetry）必须在此行之前调用。
+  if (!enabled) return null;
 
   const titleText = snapshot.region === 'mainland' ? 'Minimax CN' : snapshot.region === 'global' ? 'Minimax' : 'Minimax';
 

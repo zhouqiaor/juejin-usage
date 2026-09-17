@@ -1,6 +1,7 @@
 /** Read-only subset of the local MiniMax Code account and rate-limit snapshot. */
 export type MiniMaxSubscriptionStatus =
   | 'ready'
+  | 'disabled'
   | 'custom-provider'
   | 'not-installed'
   | 'not-signed-in'

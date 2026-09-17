@@ -1,5 +1,6 @@
 export type CursorSubscriptionStatus =
   | 'ready'
+  | 'disabled'
   | 'not-installed'
   | 'not-signed-in'
   | 'temporarily-unavailable';

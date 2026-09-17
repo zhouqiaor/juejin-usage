@@ -10,6 +10,7 @@ import { resolveArkCredentials } from './subscription-keystore';
 import { mapArkAfpResult, mapArkCodingPlanResult, mapArkTokenPacks, resolveArkPlanKind, type ArkSubscriptionSnapshot } from '../shared/ark-subscription';
 import { friendlyArkError } from '../shared/ark-error';
 import { ARK_CONTENT_TYPE, ARK_HOST, arkCanonicalQuery, signArk } from './ark-signing';
+import { loadSubscriptionPrefs } from './autostart';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 60_000;
@@ -17,6 +18,19 @@ const DEFAULT_REGION = 'cn-beijing';
 
 let lastSuccess: ArkSubscriptionSnapshot | null = null;
 let requestInFlight: Promise<ArkSubscriptionSnapshot> | null = null;
+
+/**
+ * 开关闸门：默认读 desktop-prefs.json 的 subscriptionPrefs.ark。
+ * node:test 下用 _setArkSubscriptionGateForTest 注入。
+ */
+let enabledGate: (() => Promise<boolean>) | undefined;
+
+/** [fork test] 注入开关闸门；传 null 恢复默认（读 desktop-prefs.json）。 */
+export function _setArkSubscriptionGateForTest(
+  gate: (() => Promise<boolean>) | null,
+): void {
+  enabledGate = gate ?? undefined;
+}
 
 function unavailable(
   status: ArkSubscriptionSnapshot['status'],
@@ -169,9 +183,13 @@ async function fetchFreshArk(): Promise<ArkSubscriptionSnapshot> {
   }
 }
 
-export function readArkSubscription(options: { forceRefresh?: boolean } = {}): Promise<ArkSubscriptionSnapshot> {
+export async function readArkSubscription(options: { forceRefresh?: boolean } = {}): Promise<ArkSubscriptionSnapshot> {
+  // 开关关 = 完全不拉取：不读 keystore、不签名不发请求，也不回落缓存；
+  // ark 关闭后宠物 mood 因没有该家区块自然回落到 unknown。
+  const enabled = enabledGate ? await enabledGate() : (await loadSubscriptionPrefs()).ark;
+  if (!enabled) return unavailable('disabled', '');
   if (!options.forceRefresh && lastSuccess && Date.now() - (lastSuccess.fetchedAt ?? 0) * 1000 < CACHE_TTL_MS) {
-    return Promise.resolve(lastSuccess);
+    return lastSuccess;
   }
   if (requestInFlight && !options.forceRefresh) return requestInFlight;
   const p = (async () => {

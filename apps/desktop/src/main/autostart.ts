@@ -19,6 +19,12 @@ import {
 } from '../shared/dashboard-range';
 import { isThemeMode, type ThemeMode } from '../shared/theme';
 import { isQuotaAlertThreshold, type QuotaAlertThreshold } from '../shared/pet-quota-alert';
+import {
+  SUBSCRIPTION_PREFS_CHANGED_CHANNEL,
+  DEFAULT_SUBSCRIPTION_PREFS,
+  sanitizeSubscriptionPrefs,
+  type SubscriptionPrefs,
+} from '../shared/subscription-prefs';
 
 export type QuotaBubbleMode = 'off' | 'periodic' | 'persistent';
 
@@ -87,6 +93,8 @@ interface DesktopPrefs {
    * pet.html does not share the dashboard renderer's localStorage origin.
    */
   dashboardRange?: DashboardRange;
+  /** Cursor/MiniMax/火山引擎三家订阅开关（默认全关，首次迁移落戳）。 */
+  subscriptionPrefs?: SubscriptionPrefs;
 }
 
 export interface AutostartPref {
@@ -119,6 +127,7 @@ async function readPrefsFile(): Promise<DesktopPrefs | null> {
       dashboardRange: isDashboardRange(parsed.dashboardRange)
         ? parsed.dashboardRange
         : undefined,
+      subscriptionPrefs: sanitizeSubscriptionPrefs(parsed.subscriptionPrefs) ?? undefined,
       desktopPet: desktopPet && typeof desktopPet.enabled === 'boolean'
         ? {
             enabled: desktopPet.enabled,
@@ -206,6 +215,9 @@ async function patchPrefs(patch: Partial<DesktopPrefs>): Promise<DesktopPrefs> {
       dashboardRange: patch.dashboardRange !== undefined
         ? patch.dashboardRange
         : existing?.dashboardRange,
+      subscriptionPrefs: patch.subscriptionPrefs !== undefined
+        ? patch.subscriptionPrefs
+        : existing?.subscriptionPrefs,
     };
     await writePrefs(next);
     return next;
@@ -330,6 +342,45 @@ export async function saveDashboardRange(range: DashboardRange): Promise<Dashboa
   await patchPrefs({ dashboardRange: range });
   broadcastDashboardRange(range);
   return range;
+}
+
+/**
+ * 三家订阅开关。未迁移（desktop-prefs.json 无 subscriptionPrefs）时返回全关
+ * 默认值；一次性迁移由 subscription-prefs-ipc 在启动/首次 get 时完成。
+ */
+export async function loadSubscriptionPrefs(): Promise<SubscriptionPrefs> {
+  try {
+    const existing = await withPrefsLock(async () => readPrefsFile());
+    return existing?.subscriptionPrefs ?? DEFAULT_SUBSCRIPTION_PREFS;
+  } catch {
+    // userData 不可用（如 node:test 无 Electron 运行时）：fail-closed 全关。
+    return DEFAULT_SUBSCRIPTION_PREFS;
+  }
+}
+
+/** 不经清洗的原始读取（含 undefined），仅供迁移流程判断「此前无 prefs」。 */
+export async function loadStoredSubscriptionPrefs(): Promise<SubscriptionPrefs | null> {
+  try {
+    const existing = await withPrefsLock(async () => readPrefsFile());
+    return existing?.subscriptionPrefs ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function broadcastSubscriptionPrefs(prefs: SubscriptionPrefs): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send(SUBSCRIPTION_PREFS_CHANGED_CHANNEL, prefs);
+    }
+  }
+}
+
+/** 落盘并广播到全部窗口（dashboard + pet + tray popover）。 */
+export async function saveSubscriptionPrefs(prefs: SubscriptionPrefs): Promise<SubscriptionPrefs> {
+  await patchPrefs({ subscriptionPrefs: prefs });
+  broadcastSubscriptionPrefs(prefs);
+  return prefs;
 }
 
 function isDesktopPetScale(value: unknown): value is number {

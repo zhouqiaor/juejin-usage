@@ -5,6 +5,7 @@
 // 这里只负责一次 Promise.allSettled 并发扇出（单家失败/未配置不影响其他家）。
 // 归一化/排序等会出错的逻辑全部在 shared/pet-quota-providers.ts。
 import type { PetProviderSnapshotEntry } from '../../shared/pet-quota-providers';
+import type { SubscriptionProviderKey } from '../../shared/subscription-prefs';
 
 type DistributiveFetcher<E extends PetProviderSnapshotEntry> = E extends unknown
   ? {
@@ -75,12 +76,21 @@ export interface PetProviderFetchOutcome {
 /**
  * 并发拉取全部 provider 快照。单家失败被隔离（Promise.allSettled），
  * 成功一家就进 entries 一家；全失败时 entries 为空，额度区不渲染。
+ *
+ * enabledKeys：受「设置-余量凭证」开关控制的三家（cursor/minimax/ark）。
+ * 不在集合内的家根本不会进入 Promise.allSettled —— 关闭 = 不发任何 IPC/网络请求。
  */
 export async function fetchPetProviderSnapshots(
   force = false,
+  enabledKeys?: ReadonlySet<SubscriptionProviderKey>,
 ): Promise<PetProviderFetchOutcome> {
+  const gated = new Set<SubscriptionProviderKey>(['cursor', 'minimax', 'ark']);
+  const activeFetchers = FETCHERS.filter((fetcher) => {
+    if (!gated.has(fetcher.provider as SubscriptionProviderKey)) return true;
+    return enabledKeys?.has(fetcher.provider as SubscriptionProviderKey) === true;
+  });
   const results = await Promise.allSettled(
-    FETCHERS.map(async (fetcher) => {
+    activeFetchers.map(async (fetcher) => {
       const snapshot = await fetcher.fetch(force);
       // 联合分发：键与快照类型成对构造，归一化侧再按 provider switch。
       return { provider: fetcher.provider, snapshot } as PetProviderSnapshotEntry;

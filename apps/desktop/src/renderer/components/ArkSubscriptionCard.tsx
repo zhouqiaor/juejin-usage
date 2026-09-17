@@ -7,12 +7,15 @@ import { ArkTokenPacksBlock } from './ArkTokenPacksBlock';
 import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
 import { arkPlanTitle, arkPlanSubtitle } from '../../shared/ark-subscription';
 import { formatResetCountdown } from '../../shared/subscription-reset';
+import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 
 function arkRemaining(usedPercent: number): number {
   return Math.max(0, Math.min(100, Math.round((100 - usedPercent) * 100) / 100));
 }
 
 export function ArkSubscriptionCard() {
+  const subscriptionPrefs = useSubscriptionPrefs();
+  const enabled = subscriptionPrefs.ark;
   const [data, setData] = useState<SubscriptionUsageCardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
@@ -21,6 +24,13 @@ export function ArkSubscriptionCard() {
   const forceRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
+    // 开关关 = 完全不拉取（不发 IPC，main 侧也有守卫）；广播到达后 effect 重跑。
+    // 关→开切换时清掉旧卡并回到 loading，避免开关期间残留上一次快照。
+    if (!enabled) {
+      setData(null);
+      setLoading(true);
+      return;
+    }
     let cancelled = false;
     // 去重标志必须是 effect 局部变量，不能用跨 StrictMode 双挂载共享的 ref：
     // dev 下 effect mount→cleanup→mount，若第二次撞上第一次遗留的 inFlight
@@ -99,7 +109,7 @@ export function ArkSubscriptionCard() {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener(SUBSCRIPTION_REFRESH_EVENT, onRefresh);
     };
-  }, []);
+  }, [enabled]);
 
   // stale 角标点击：强制刷新。inFlight 是 effect 局部变量、此闭包读不到，
   // 防连点靠 retrying（骨架在 retrying 时也会禁用按钮点击）。

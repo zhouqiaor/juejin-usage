@@ -8,6 +8,7 @@ import {
 } from '../shared/minimax-subscription';
 // [fork extension] keystore: env + safeStorage fallback for desktop app key entry
 import { resolveMiniMaxCredentials } from './subscription-keystore';
+import { loadSubscriptionPrefs } from './autostart';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 60_000;
@@ -22,6 +23,31 @@ interface MiniMaxCredentials {
 
 let lastSuccess: MiniMaxSubscriptionSnapshot | null = null;
 let requestInFlight: Promise<MiniMaxSubscriptionSnapshot> | null = null;
+
+/**
+ * 开关闸门：默认读 desktop-prefs.json 的 subscriptionPrefs.minimax。
+ * node:test 下用 _setMiniMaxSubscriptionGateForTest 注入。
+ */
+let enabledGate: (() => Promise<boolean>) | undefined;
+
+function disabledSnapshot(): MiniMaxSubscriptionSnapshot {
+  return {
+    status: 'disabled',
+    planLabel: null,
+    region: null,
+    limits: [],
+    fetchedAt: null,
+    stale: false,
+    message: null,
+  };
+}
+
+/** [fork test] 注入开关闸门；传 null 恢复默认（读 desktop-prefs.json）。 */
+export function _setMiniMaxSubscriptionGateForTest(
+  gate: (() => Promise<boolean>) | null,
+): void {
+  enabledGate = gate ?? undefined;
+}
 // [fork extension] 记忆区：任一区成功后记住，下轮首跳直接打记忆区，避免每轮跨区废跳
 let lastGoodRegion: 'global' | 'mainland' | null = null;
 // [fork extension] 记忆区连续失败计数：达到上限后清除记忆，回落 detectRegion 启发式
@@ -306,6 +332,12 @@ async function attemptFetchQuota(
 export async function readMiniMaxSubscription(
   options: { forceRefresh?: boolean } = {},
 ): Promise<MiniMaxSubscriptionSnapshot> {
+  // 开关关 = 完全不拉取：必须在 keystore/凭据文件自动探测与任何网络请求之前短路。
+  if (enabledGate) {
+    if (!await enabledGate()) return disabledSnapshot();
+  } else if (!(await loadSubscriptionPrefs()).minimax) {
+    return disabledSnapshot();
+  }
   if (hasCustomMiniMaxConfiguration(process.env)) {
     return unavailable('custom-provider', '自定义模型无法获取配额');
   }

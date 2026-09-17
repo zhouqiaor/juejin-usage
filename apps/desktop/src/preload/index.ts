@@ -37,6 +37,12 @@ import type { OpenCodeSubscriptionSnapshot } from '../shared/opencode-subscripti
 import type { TraeSubscriptionSnapshot } from '../shared/trae-subscription';
 import type { WorkBuddySubscriptionSnapshot } from '../shared/workbuddy-subscription';
 import type { ArkSubscriptionSnapshot } from '../shared/ark-subscription';
+import {
+  SUBSCRIPTION_PREFS_GET_CHANNEL,
+  SUBSCRIPTION_PREFS_SET_CHANNEL,
+  SUBSCRIPTION_PREFS_CHANGED_CHANNEL,
+  type SubscriptionPrefs,
+} from '../shared/subscription-prefs';
 import type {
   SubscriptionKeyStatus,
   SubscriptionKeySaveResult,
@@ -213,6 +219,22 @@ const tudApi = {
 
   getArkSubscription: (options?: { forceRefresh?: boolean }): Promise<ArkSubscriptionSnapshot> =>
     ipcRenderer.invoke(ARK_SUBSCRIPTION_GET_CHANNEL, options),
+
+  getSubscriptionPrefs: (): Promise<SubscriptionPrefs> =>
+    ipcRenderer.invoke(SUBSCRIPTION_PREFS_GET_CHANNEL),
+
+  setSubscriptionPrefs: (
+    patch: Partial<Pick<SubscriptionPrefs, 'cursor' | 'minimax' | 'ark'>>,
+  ): Promise<SubscriptionPrefs> =>
+    ipcRenderer.invoke(SUBSCRIPTION_PREFS_SET_CHANNEL, patch),
+
+  onSubscriptionPrefsChanged: (callback: (prefs: SubscriptionPrefs) => void) => {
+    const listener = (_event: unknown, value: unknown) => {
+      if (value && typeof value === 'object') callback(value as SubscriptionPrefs);
+    };
+    ipcRenderer.on(SUBSCRIPTION_PREFS_CHANGED_CHANNEL, listener);
+    return () => ipcRenderer.removeListener(SUBSCRIPTION_PREFS_CHANGED_CHANNEL, listener);
+  },
 
   /** Open http(s) in the OS default browser (掘金登录). */
   openExternal: (

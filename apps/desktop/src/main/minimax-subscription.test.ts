@@ -3,7 +3,12 @@ import test from 'node:test';
 import {
   hasCustomMiniMaxConfiguration,
   parseMiniMaxCredentials,
+  _setMiniMaxSubscriptionGateForTest,
 } from './minimax-subscription';
+
+// 订阅开关在生产默认关闭（读 desktop-prefs.json）；node:test 无 Electron
+// userData，统一注入「开启」闸门让既有取数测试按原语义运行。
+_setMiniMaxSubscriptionGateForTest(() => Promise.resolve(true));
 
 const GLOBAL_ORIGIN = 'https://api.minimax.io';
 const MAINLAND_ORIGIN = 'https://api.minimaxi.com';
@@ -250,6 +255,25 @@ test('记忆区返回 401 时持续返回 expired 重新登录提示，不触发
     }
   } finally {
     learn.restore();
+    delete process.env.MINIMAX_API_KEY;
+  }
+});
+
+test('开关关闭：短路在凭据探测/网络之前，返回 disabled 快照', async () => {
+  process.env.MINIMAX_API_KEY = 'sk-cp-global-prod-disabled';
+  const spy = installFetch(() => {
+    throw new Error('disabled 时不允许任何网络请求');
+  });
+  _setMiniMaxSubscriptionGateForTest(() => Promise.resolve(false));
+  try {
+    const mod = await freshMiniMax();
+    const snap = await mod.readMiniMaxSubscription({ forceRefresh: true });
+    assert.equal(snap.status, 'disabled');
+    assert.equal(snap.limits.length, 0);
+    assert.equal(spy.calls.length, 0, '关闭时不得发出请求');
+  } finally {
+    _setMiniMaxSubscriptionGateForTest(() => Promise.resolve(true));
+    spy.restore();
     delete process.env.MINIMAX_API_KEY;
   }
 });

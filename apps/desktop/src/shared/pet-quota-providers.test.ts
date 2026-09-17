@@ -635,3 +635,49 @@ test('formatCompactBubbleRow: 与 projectToCompactRows 端到端拼装可还原�
   assert.equal(ark!.resetTitle, '5h 窗口 今天 18:04 重置');
   assert.equal(cn!.resetTitle, '5h 窗口 今天 19:31 重置');
 });
+
+test('disabled 快照在归一化层被丢弃：cursor/minimax/ark 均不出 section', () => {
+  const cursorDisabled = {
+    status: 'disabled',
+    planLabel: null,
+    cursorModels: null,
+    otherModels: null,
+    plan: null,
+    fetchedAt: null,
+    stale: false,
+    message: null,
+  } as CursorSubscriptionSnapshot;
+  const minimaxDisabled = {
+    status: 'disabled',
+    planLabel: null,
+    region: null,
+    limits: [],
+    fetchedAt: null,
+    stale: false,
+    message: null,
+  } as MiniMaxSubscriptionSnapshot;
+  const arkDisabled = {
+    status: 'disabled',
+    planKind: null,
+    planLabel: null,
+    limits: [],
+    tokenPacks: [],
+    tokenPacksError: null,
+    fetchedAt: null,
+    stale: false,
+    message: null,
+  } as ArkSubscriptionSnapshot;
+
+  assert.equal(normalizeCursorSection(cursorDisabled), null);
+  assert.equal(normalizeMiniMaxSection(minimaxDisabled), null);
+  assert.equal(normalizeArkSection(arkDisabled), null);
+
+  const entries: PetProviderSnapshotEntry[] = [
+    { provider: 'cursor', snapshot: cursorDisabled },
+    { provider: 'minimax', snapshot: minimaxDisabled },
+    { provider: 'ark', snapshot: arkDisabled },
+  ];
+  const aggregate = buildPetQuotaAggregate(entries, NOW_MS);
+  assert.equal(aggregate.sections.length, 0);
+  assert.deepEqual(projectToCompactRows(aggregate), []);
+});

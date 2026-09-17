@@ -2,6 +2,11 @@
 // main/ark-subscription.test.ts -- 凭据解析/缺失态测试（node:test）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { _setArkSubscriptionGateForTest } from './ark-subscription';
+
+// 订阅开关在生产默认关闭（读 desktop-prefs.json）；node:test 无 Electron
+// userData，统一注入「开启」闸门让既有取数测试按原语义运行。
+_setArkSubscriptionGateForTest(() => Promise.resolve(true));
 
 // 用 env 注入方式验证 resolveArkCredentials 优先 env；缺凭据态返回 null
 // 安全：测试用 fake AK/SK，不暴露也不读取真实键
@@ -325,6 +330,28 @@ test('allSettled: 两路均鉴权失败时返回 auth-error 且错误信息中�
     assert.equal(snap.status, 'auth-error');
     assert.match(snap.message ?? '', /签名不匹配/);
   } finally {
+    globalThis.fetch = originalFetch;
+    delete process.env.VOLC_ACCESS_KEY_ID;
+    delete process.env.VOLC_SECRET_ACCESS_KEY;
+  }
+});
+
+test('readArkSubscription: 开关关闭时不签名不发请求，直接返回 disabled', async () => {
+  process.env.VOLC_ACCESS_KEY_ID = 'AKLTDISABLED';
+  process.env.VOLC_SECRET_ACCESS_KEY = 'SKDISABLED';
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new Error('disabled 时不允许任何网络请求');
+  }) as typeof fetch;
+  _setArkSubscriptionGateForTest(() => Promise.resolve(false));
+  try {
+    const { readArkSubscription, _resetArkForTest } = await import('./ark-subscription.js');
+    _resetArkForTest();
+    const snap = await readArkSubscription({ forceRefresh: true });
+    assert.equal(snap.status, 'disabled');
+    assert.equal(snap.limits.length, 0);
+  } finally {
+    _setArkSubscriptionGateForTest(() => Promise.resolve(true));
     globalThis.fetch = originalFetch;
     delete process.env.VOLC_ACCESS_KEY_ID;
     delete process.env.VOLC_SECRET_ACCESS_KEY;

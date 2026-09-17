@@ -29,7 +29,7 @@ export interface ArkTokenPack {
 export type ArkPlanKind = 'coding' | 'agent';
 
 export interface ArkSubscriptionSnapshot {
-  status: 'ready' | 'not-configured' | 'auth-error' | 'custom-provider' | 'temporarily-unavailable';
+  status: 'ready' | 'disabled' | 'not-configured' | 'auth-error' | 'custom-provider' | 'temporarily-unavailable';
   /** 套餐种类；main 成功路径必填。可选以兼容既有序列化/测试夹具，消费方按 null 处理 */
   planKind?: ArkPlanKind | null;
   planLabel: string | null;

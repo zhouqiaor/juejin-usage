@@ -53,6 +53,14 @@ import type { PetSyncFeedback } from '../../shared/pet-sync-feedback';
 import { PetQuotaBubble } from './PetQuotaBubble';
 import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
 import { fetchPetProviderSnapshots } from '../lib/petProviderSnapshots';
+import {
+  subscribeSubscriptionPrefs,
+  useSubscriptionPrefs,
+} from '../lib/useSubscriptionPrefs';
+import {
+  enabledSubscriptionKeys,
+  type SubscriptionProviderKey,
+} from '../../shared/subscription-prefs';
 
 const DISPLAY_SCALE = 0.5;
 const DRAG_ANIMATION_SPEED_MULTIPLIER = 0.55;
@@ -136,6 +144,15 @@ export function DesktopPetView() {
   const [resetFlashKey, setResetFlashKey] = useState<string | null>(null);
   /** 右键菜单打开期间抑制本轮弹出；bump epoch 让周期定时器重新等满一个周期。 */
   const [quotaScheduleEpoch, setQuotaScheduleEpoch] = useState(0);
+  /** 三家订阅开关镜像（cursor/minimax/ark）；旧 preload 缺桥接时 hook 内部降级全开。 */
+  const subscriptionPrefs = useSubscriptionPrefs();
+  /**
+   * 开关内容未变但凭据保存/清除时 main 也会广播 prefs：bump 本 epoch 让扇出
+   * effect 重跑一次（开着的家用新凭据立即重轮询）。
+   */
+  const [subscriptionPrefsEpoch, setSubscriptionPrefsEpoch] = useState(0);
+  const enabledProviderKeys: ReadonlySet<SubscriptionProviderKey> =
+    enabledSubscriptionKeys(subscriptionPrefs);
   const spriteRef = useRef<HTMLButtonElement>(null);
   /** 动效层：挂在 sprite 后、stage 内，mood 切换时挂 pet-mood-* class 触发 CSS 动画。 */
   const fxRef = useRef<HTMLSpanElement>(null);
@@ -219,6 +236,12 @@ export function DesktopPetView() {
     void window.tud.getDashboardRange().then(setRange);
     return window.tud.onDashboardRange(setRange);
   }, []);
+
+  // prefs 广播（含凭据保存后载荷不变的一次）：bump epoch 让扇出立即重轮询。
+  useEffect(
+    () => subscribeSubscriptionPrefs(() => setSubscriptionPrefsEpoch((e) => e + 1)),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -428,7 +451,7 @@ export function DesktopPetView() {
     const load = async (force: boolean) => {
       let outcome: Awaited<ReturnType<typeof fetchPetProviderSnapshots>>;
       try {
-        outcome = await fetchPetProviderSnapshots(force);
+        outcome = await fetchPetProviderSnapshots(force, enabledProviderKeys);
       } catch (error) {
         if (!quotaWarnedRef.current) {
           quotaWarnedRef.current = true;
@@ -500,6 +523,11 @@ export function DesktopPetView() {
     quotaMoodEnabled,
     quotaAlertThreshold,
     quotaAlertCooldownMin,
+    // 开关切换：关闭家立即停拉取、重开立即恢复；epoch 覆盖凭据保存后的同值广播。
+    subscriptionPrefs.cursor,
+    subscriptionPrefs.minimax,
+    subscriptionPrefs.ark,
+    subscriptionPrefsEpoch,
   ]);
 
   // resetting 1.2s 闪光：class 加入时 CSS animation 自然播放一次，到期摘 class。

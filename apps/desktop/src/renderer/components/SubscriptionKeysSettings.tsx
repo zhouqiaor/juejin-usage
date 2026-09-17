@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 // renderer/components/SubscriptionKeysSettings.tsx — 余量凭证设置面板
 import { useEffect, useState } from 'react';
-import { Button, Card, Chip, Description, Input, Label, TextField } from '@heroui/react';
+import { Button, Card, Chip, Description, Input, Label, Switch, TextField } from '@heroui/react';
 import { StatusBanner } from '@/components/StatusBanner';
 import { validateArkAccessKeyIdForSave } from '../../shared/ark-credentials';
+import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
+import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 
 interface KeyStatus {
   plan: 'minimax' | 'ark';
@@ -48,7 +50,35 @@ interface ArkProbeState {
   message: string;
 }
 
+/** 标题栏右侧的启用开关（与 ProjectUsagePanel 同一 Switch 写法）。 */
+function EnableSwitch({
+  isSelected,
+  onChange,
+  label,
+}: {
+  isSelected: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+}) {
+  return (
+    <Switch
+      className="shrink-0"
+      isSelected={isSelected}
+      size="sm"
+      onChange={onChange}
+    >
+      <Switch.Content className="gap-1.5 text-xs font-normal text-muted">
+        <Switch.Control>
+          <Switch.Thumb />
+        </Switch.Control>
+        {label}
+      </Switch.Content>
+    </Switch>
+  );
+}
+
 export function SubscriptionKeysSettings() {
+  const subscriptionPrefs = useSubscriptionPrefs();
   const [minimaxKey, setMinimaxKey] = useState('');
   const [arkAk, setArkAk] = useState('');
   const [arkSk, setArkSk] = useState('');
@@ -58,12 +88,48 @@ export function SubscriptionKeysSettings() {
   const [arkFieldError, setArkFieldError] = useState<string | null>(null);
   const [clearingPlan, setClearingPlan] = useState<string | null>(null);
   const [arkProbe, setArkProbe] = useState<ArkProbeState>({ state: 'idle', message: '' });
+  /** Cursor 无密钥输入：开启后只读探测一次本机登录态，用于「已开启但没登录」内联提示。 */
+  const [cursorSignIn, setCursorSignIn] = useState<'unknown' | 'present' | 'missing'>('unknown');
+
+  const onTogglePref = (key: 'cursor' | 'minimax' | 'ark', enabled: boolean) => {
+    // 旧 preload 中间态缺该 IPC 时静默失败（main 重启后即一致）。
+    window.tud.setSubscriptionPrefs?.({ [key]: enabled }).catch(() => {});
+  };
 
   useEffect(() => {
     window.tud.getSubscriptionKeysStatus().then((r) => {
       if (r.success && r.data) setStatuses(r.data);
     });
   }, []);
+
+  // Cursor 开关开启时探测本机登录态（只读本地 state.vscdb；有登录态时 main 顺带完成一次配额拉取）。
+  useEffect(() => {
+    if (!subscriptionPrefs.cursor) {
+      setCursorSignIn('unknown');
+      return;
+    }
+    let cancelled = false;
+    void window.tud.getCursorSubscription()
+      .then((snapshot) => {
+        if (cancelled) return;
+        setCursorSignIn(
+          snapshot.status === 'not-installed' || snapshot.status === 'not-signed-in'
+            ? 'missing'
+            : 'present',
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setCursorSignIn('unknown');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [subscriptionPrefs.cursor]);
+
+  /** 凭据保存/清除后通知同窗口订阅卡强刷；pet.html 由 main 的 prefs 广播驱动重轮询。 */
+  const dispatchSubscriptionRefresh = () => {
+    window.dispatchEvent(new CustomEvent(SUBSCRIPTION_REFRESH_EVENT));
+  };
 
   const probeArkCredentials = async () => {
     setArkProbe({ state: 'checking', message: '' });
@@ -104,6 +170,7 @@ export function SubscriptionKeysSettings() {
         if (r.success) {
           if (r.data) setStatuses(r.data);
           setMinimaxKey('');
+          dispatchSubscriptionRefresh();
         } else {
           setError(r.message);
         }
@@ -145,6 +212,7 @@ export function SubscriptionKeysSettings() {
           setArkSk('');
           // 保存后做一次只读探针，让鉴权失败在本面板可见（不改订阅卡片）
           void probeArkCredentials();
+          dispatchSubscriptionRefresh();
         } else {
           // 主进程侧 AKLT 校验失败等
           setArkFieldError(r.message);
@@ -163,8 +231,10 @@ export function SubscriptionKeysSettings() {
       .clearSubscriptionKeys(plan)
       .then((r: SaveResult) => {
         setClearingPlan(null);
-        if (r.success && r.data) setStatuses(r.data);
-        else setError(r.message);
+        if (r.success && r.data) {
+          setStatuses(r.data);
+          dispatchSubscriptionRefresh();
+        } else setError(r.message);
       })
       .catch((e: unknown) => {
         setClearingPlan(null);
@@ -185,8 +255,36 @@ export function SubscriptionKeysSettings() {
     <div className="flex flex-col gap-4">
       {error && <StatusBanner tone="error" title={error} />}
       <p className="text-sm text-muted">
-        配置 MiniMax Code 与火山引擎套餐余量的查询凭证。密钥仅加密存储在本机（系统安全存储），仅用于向各服务官方接口查询余量。
+        Cursor / MiniMax Code / 火山引擎三家套餐余量默认不采集，请用各家卡片上的开关手动启用；关闭后完全不拉取（仪表板卡片、宠物气泡与告警均不出现该家）。密钥仅加密存储在本机（系统安全存储），仅用于向各服务官方接口查询余量。
       </p>
+
+      <Card className="rounded-xl shadow-none" variant="tertiary">
+        <Card.Header>
+          <div className="flex w-full items-center justify-between gap-4">
+            <Card.Title>Cursor</Card.Title>
+            <EnableSwitch
+              isSelected={subscriptionPrefs.cursor}
+              label={subscriptionPrefs.cursor ? '已启用' : '启用'}
+              onChange={(checked) => onTogglePref('cursor', checked)}
+            />
+          </div>
+        </Card.Header>
+        <Card.Content className="flex flex-col gap-2">
+          <p className="text-xs text-muted">
+            读取本机已登录的 Cursor 客户端配额，无需填写密钥。
+          </p>
+          {subscriptionPrefs.cursor && cursorSignIn === 'missing' && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              已开启，但未检测到本机 Cursor 登录态；请先登录 Cursor 客户端，仪表板卡片随后自动出现。
+            </p>
+          )}
+          {subscriptionPrefs.cursor && cursorSignIn === 'present' && (
+            <p className="text-xs text-emerald-600 dark:text-emerald-400">
+              已开启：正在读取本机已登录的 Cursor 客户端。
+            </p>
+          )}
+        </Card.Content>
+      </Card>
 
       <Card className="rounded-xl shadow-none" variant="tertiary">
         <Card.Content className="flex flex-col gap-1.5 text-xs text-muted">
@@ -218,10 +316,22 @@ export function SubscriptionKeysSettings() {
         <Card.Header>
           <div className="flex w-full items-center justify-between gap-4">
             <Card.Title>MiniMax Code</Card.Title>
-            <SourceChip source={mmStatus?.source ?? 'none'} masked={mmStatus?.masked ?? null} />
+            <div className="flex items-center gap-3">
+              <SourceChip source={mmStatus?.source ?? 'none'} masked={mmStatus?.masked ?? null} />
+              <EnableSwitch
+                isSelected={subscriptionPrefs.minimax}
+                label={subscriptionPrefs.minimax ? '已启用' : '启用'}
+                onChange={(checked) => onTogglePref('minimax', checked)}
+              />
+            </div>
           </div>
         </Card.Header>
         <Card.Content className="flex flex-col gap-3">
+          {subscriptionPrefs.minimax && (mmStatus?.source ?? 'none') === 'none' && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              已开启，请填写并保存凭据（也可通过环境变量或本机 MiniMax Code 登录态提供）。
+            </p>
+          )}
           {mmIsEnv && (
             <p className="text-xs text-muted">
               当前由环境变量提供（优先级更高）。清除环境变量 MINIMAX_API_KEY / MINIMAX_CODING_KEY
@@ -270,10 +380,22 @@ export function SubscriptionKeysSettings() {
         <Card.Header>
           <div className="flex w-full items-center justify-between gap-4">
             <Card.Title>火山引擎 Ark 余量</Card.Title>
-            <SourceChip source={arkStatus?.source ?? 'none'} masked={arkStatus?.masked ?? null} />
+            <div className="flex items-center gap-3">
+              <SourceChip source={arkStatus?.source ?? 'none'} masked={arkStatus?.masked ?? null} />
+              <EnableSwitch
+                isSelected={subscriptionPrefs.ark}
+                label={subscriptionPrefs.ark ? '已启用' : '启用'}
+                onChange={(checked) => onTogglePref('ark', checked)}
+              />
+            </div>
           </div>
         </Card.Header>
         <Card.Content className="flex flex-col gap-3">
+          {subscriptionPrefs.ark && (arkStatus?.source ?? 'none') === 'none' && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              已开启，请填写并保存凭据（也可通过 VOLC_ACCESS_KEY_ID / VOLC_SECRET_ACCESS_KEY 环境变量提供）。
+            </p>
+          )}
           {arkIsEnv && (
             <p className="text-xs text-muted">
               当前由环境变量提供（优先级更高）。清除环境变量 VOLC_ACCESS_KEY_ID /

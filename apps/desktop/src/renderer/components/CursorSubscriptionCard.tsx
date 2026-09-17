@@ -7,6 +7,7 @@ import { SubscriptionUsageCard, type SubscriptionUsageMetric } from './Subscript
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
 import { useNowTick } from '../lib/useNowTick';
 import { formatResetCountdown } from '../../shared/subscription-reset';
+import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 
 const INITIAL_SNAPSHOT: CursorSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -21,6 +22,8 @@ const INITIAL_SNAPSHOT: CursorSubscriptionSnapshot = {
 
 /** Cursor subscription pools from the locally signed-in desktop account. */
 export function CursorSubscriptionCard() {
+  const subscriptionPrefs = useSubscriptionPrefs();
+  const enabled = subscriptionPrefs.cursor;
   const [snapshot, setSnapshot] = useState<CursorSubscriptionSnapshot>(INITIAL_SNAPSHOT);
   const [loading, setLoading] = useState(true);
   const requestInFlight = useRef(false);
@@ -42,14 +45,19 @@ export function CursorSubscriptionCard() {
   }, []);
 
   useEffect(() => {
+    // 开关关 = 完全不拉取；开关广播到达后 effect 重跑即时显隐。
+    if (!enabled) return;
     void reload();
     const onFocus = () => void reload();
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [reload]);
+  }, [reload, enabled]);
 
   // 倒计时随 30s tick 重算；billingCycleEnd 缺失/过期时 formatResetCountdown 返回 null 不渲染
   const nowSec = Math.floor(useNowTick() / 1000);
+
+  // 开关关闭：所有 hook 必须在此行之前调用（useNowTick 也是 hook）。
+  if (!enabled) return null;
   const resetFor = (window: { resetsAt: number | null } | null): string | undefined =>
     window ? formatResetCountdown(window.resetsAt, nowSec) ?? undefined : undefined;
 

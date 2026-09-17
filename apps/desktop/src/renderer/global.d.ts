@@ -85,6 +85,18 @@ declare global {
       getArkSubscription: (options?: { forceRefresh?: boolean }) => Promise<
         import('../shared/ark-subscription').ArkSubscriptionSnapshot
       >;
+      getSubscriptionPrefs: () => Promise<
+        import('../shared/subscription-prefs').SubscriptionPrefs
+      >;
+      setSubscriptionPrefs: (
+        patch: Partial<Pick<
+          import('../shared/subscription-prefs').SubscriptionPrefs,
+          'cursor' | 'minimax' | 'ark'
+        >>,
+      ) => Promise<import('../shared/subscription-prefs').SubscriptionPrefs>;
+      onSubscriptionPrefsChanged: (
+        callback: (prefs: import('../shared/subscription-prefs').SubscriptionPrefs) => void,
+      ) => () => void;
       openExternal: (
         url: string,
       ) => Promise<{ ok: boolean; message?: string }>;

@@ -7,6 +7,7 @@ import {
   mapCursorUsageSummary,
   type CursorSubscriptionSnapshot,
 } from '../shared/cursor-subscription';
+import { loadSubscriptionPrefs } from './autostart';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 60_000;
@@ -26,6 +27,60 @@ class CursorCredentialError extends Error {
 
 let lastSuccess: CursorSubscriptionSnapshot | null = null;
 let requestInFlight: Promise<CursorSubscriptionSnapshot> | null = null;
+
+/**
+ * 开关闸门：默认读 desktop-prefs.json 的 subscriptionPrefs.cursor。
+ * node:test 下用 _setCursorSubscriptionGateForTest 注入，不落 Electron userData。
+ */
+let enabledGate: (() => Promise<boolean>) | undefined;
+
+function disabledSnapshot(): CursorSubscriptionSnapshot {
+  return {
+    status: 'disabled',
+    planLabel: null,
+    cursorModels: null,
+    otherModels: null,
+    plan: null,
+    fetchedAt: null,
+    stale: false,
+    message: null,
+  };
+}
+
+async function isCursorEnabled(): Promise<boolean> {
+  if (enabledGate) return enabledGate();
+  return (await loadSubscriptionPrefs()).cursor;
+}
+
+/** [fork test] 注入开关闸门；传 null 恢复默认（读 desktop-prefs.json）。 */
+export function _setCursorSubscriptionGateForTest(
+  gate: (() => Promise<boolean>) | null,
+): void {
+  enabledGate = gate ?? undefined;
+}
+
+/**
+ * 一次性迁移用的只读可用性探测：本机有可解析的 Cursor 登录态即 true。
+ * 只读 state.vscdb / cli-config.json，不发任何网络请求。Cursor 运行时其
+ * state.vscdb 可能瞬时 BUSY（WAL 大库），unavailable 类错误短暂等待后重试一次，
+ * 避免迁移把已登录用户误判为不可用；not-installed/not-signed-in 不重试。
+ */
+export async function hasCursorCredentials(): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await readCursorCredentials();
+      return true;
+    } catch (error) {
+      const transient = error instanceof CursorCredentialError && error.kind === 'unavailable';
+      if (transient && attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        continue;
+      }
+      return false;
+    }
+  }
+  return false;
+}
 
 function expandHome(value: string): string {
   if (value === '~') return homedir();
@@ -193,6 +248,8 @@ async function fetchFreshCursorSubscription(): Promise<CursorSubscriptionSnapsho
 export async function readCursorSubscription(
   options: { forceRefresh?: boolean } = {},
 ): Promise<CursorSubscriptionSnapshot> {
+  // 开关关 = 完全不拉取：不读 state.vscdb、不发网络请求，也不回落缓存。
+  if (!await isCursorEnabled()) return disabledSnapshot();
   const cacheAge = lastSuccess?.fetchedAt
     ? Date.now() - lastSuccess.fetchedAt * 1_000
     : Number.POSITIVE_INFINITY;
