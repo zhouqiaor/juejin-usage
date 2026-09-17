@@ -20,6 +20,10 @@ import {
   selectTightestTokenPack,
 } from './pet-quota-bubble.js';
 import type { QoderSubscriptionSnapshot } from './qoder-subscription.js';
+import {
+  formatResetCountdownShort,
+  formatResetCountdownZh,
+} from './subscription-reset.js';
 import type { TraeSubscriptionSnapshot } from './trae-subscription.js';
 import type { WorkBuddySubscriptionSnapshot } from './workbuddy-subscription.js';
 import type { ZcodeSubscriptionSnapshot } from './zcode-subscription.js';
@@ -52,7 +56,7 @@ export interface PetQuotaProviderSection {
   title: string;
   /** 套餐档位（Pro / Team 等），标题右侧弱化展示；无则 null。 */
   planLabel: string | null;
-  /** 快照标记 stale 时标题后加「旧」角标。 */
+  /** 快照是否 stale：保留在模型里供 mood/告警逻辑使用；气泡不渲染可见标记。 */
   stale: boolean;
   /** 已按 five-hour → weekly → monthly → other 排序、至多 3 个窗口。 */
   windows: PetQuotaWindow[];
@@ -559,4 +563,84 @@ export function selectAggregateNextResetSec(
     }
   }
   return next;
+}
+
+/** 气泡行纯文本投影——可直接喂渲染层；零 React/Electron/DOM 依赖。 */
+export interface CompactBubbleRowText {
+  /** provider 短名（必现，渲染时 truncate+title）。 */
+  title: string;
+  /**
+   * 套餐档位（Free/Medium 等）：不进气泡正文，仅由渲染层拼进行 title
+   * 悬浮文本（`title · planLabel`）；空串归一为 null。
+   */
+  planLabel: string | null;
+  /** 是否标记 stale（仅模型透传供 mood/告警使用；气泡可见文案不带任何后缀）。 */
+  stale: boolean;
+  /**
+   * 重点窗口标签，恒显示（5h/7d/30d/Plan/Credits/余额…）；但与 title
+   * 归一化（trim+小写）相同时置 null（消除 `Cursor · Cursor` 这类重复）。
+   */
+  primaryLabel: string | null;
+  /** 剩余百分比整数（与渲染层同号）。 */
+  remainingPercent: number;
+  /**
+   * 重置时刻短形态（GMT+8 具体时钟）：今天 `HH:mm`、今年跨天 `MM-dd`、
+   * 跨年 `YY-MM-dd`；resetsAtSec 为 null/过期/无效 → null（不显示）。
+   */
+  resetShort: string | null;
+  /**
+   * 完整中文重置文案（含窗口标签 + 具体时刻），如
+   * `5h 窗口 今天 16:35 重置` / `5h 窗口 10-14 08:00 重置`；
+   * 渲染层放进 title 属性 / aria-label。无重置信息时为 null。
+   */
+  resetTitle: string | null;
+  /** 完整中文 aria-label（含 plan、窗口标签与重置时间，语义完整）。 */
+  ariaLabel: string;
+}
+
+/** 标签同名归一：trim + 小写；用于消除 title 与 primaryLabel 的重复显示。 */
+function sameLabel(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+function nonEmptyLabel(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * 极简气泡行纯格式化（与 PetQuotaCompactRow 一一对应，可在 node:test 单测）：
+ * - primaryLabel 恒显示，除非与 title 归一化后同名（如 Cursor 的 primary
+ *   窗口标签就是 "Cursor"）——同名置 null，避免 `Cursor · Cursor`；
+ * - planLabel（Free/Medium 等）不进正文，仅由渲染层拼进行 title 悬浮；
+ * - 重置时刻短形态 `HH:mm`（今天）/ `MM-dd`（今年跨天）/ `YY-MM-dd`（跨年，
+ *   GMT+8），完整中文 `5h 窗口 今天 16:35 重置` 进 resetTitle 与 aria-label。
+ */
+export function formatCompactBubbleRow(
+  row: PetQuotaCompactRow,
+  nowSec: number,
+): CompactBubbleRowText {
+  const resetShort = formatResetCountdownShort(row.resetsAtSec, nowSec);
+  const resetZh = formatResetCountdownZh(row.resetsAtSec, nowSec);
+  const planLabel = nonEmptyLabel(row.planLabel);
+  const rawLabel = row.primaryLabel.trim();
+  const primaryLabel = rawLabel !== '' && !sameLabel(rawLabel, row.title) ? rawLabel : null;
+  const resetTitle = resetZh
+    ? primaryLabel ? `${primaryLabel} 窗口 ${resetZh}` : resetZh
+    : null;
+  const planPart = planLabel ? ` ${planLabel}` : '';
+  const suffix = primaryLabel ? `${primaryLabel} 窗口剩余` : '剩余';
+  const base = `${row.title}${planPart} ${suffix} ${row.remainingPercent}%`;
+  const ariaLabel = resetZh ? `${base}，${resetZh}` : base;
+  return {
+    title: row.title,
+    planLabel,
+    stale: row.stale,
+    primaryLabel,
+    remainingPercent: row.remainingPercent,
+    resetShort,
+    resetTitle,
+    ariaLabel,
+  };
 }

@@ -12,6 +12,7 @@ import type { WorkBuddySubscriptionSnapshot } from './workbuddy-subscription.js'
 import {
   buildPetQuotaAggregate,
   classifyQuotaWindow,
+  formatCompactBubbleRow,
   normalizeAntigravitySection,
   normalizeArkSection,
   normalizeClaudeSection,
@@ -429,4 +430,208 @@ test('projectToCompactRows: stale 透传；无数据家被跳过；16 家全空�
   assert.equal(rows[0]?.hasData, true);
 
   assert.deepEqual(projectToCompactRows(buildPetQuotaAggregate([], NOW_MS)), []);
+});
+
+const MIN = 60;
+const HOUR = 3_600;
+const NOW_SEC = NOW_MS / 1_000;
+
+test('formatCompactBubbleRow: primaryLabel 恒显示（5h），planLabel 仅留给悬浮', () => {
+  const row: ReturnType<typeof projectToCompactRows>[number] = {
+    key: 'codex',
+    title: 'Codex',
+    planLabel: 'Pro',
+    primaryLabel: '5h',
+    remainingPercent: 42,
+    resetsAtSec: NOW_SEC + 18 * MIN,
+    stale: false,
+    hasData: true,
+  };
+  const text = formatCompactBubbleRow(row, NOW_SEC);
+  assert.equal(text.title, 'Codex');
+  // planLabel 不进正文，但投影仍返回（渲染层拼 title 悬浮 `title · planLabel`）。
+  assert.equal(text.planLabel, 'Pro');
+  assert.equal(text.primaryLabel, '5h');
+  assert.equal(text.remainingPercent, 42);
+  // 短形态为 GMT+8 具体时刻（同天 HH:mm；fixture 17:46 + 18m = 18:04）。
+  assert.equal(text.resetShort, '18:04');
+  // 完整中文进 title 悬浮文案，含窗口名 + 「今天 HH:mm 重置」。
+  assert.equal(text.resetTitle, '5h 窗口 今天 18:04 重置');
+  assert.equal(
+    text.ariaLabel,
+    'Codex Pro 5h 窗口剩余 42%，今天 18:04 重置',
+  );
+});
+
+test('formatCompactBubbleRow: primaryLabel 与 title 同名（归一化）时隐藏', () => {
+  const row = {
+    key: 'cursor' as const,
+    title: 'Cursor',
+    planLabel: 'Pro',
+    primaryLabel: 'Cursor',
+    remainingPercent: 20,
+    resetsAtSec: null,
+    stale: false,
+    hasData: true,
+  };
+  const text = formatCompactBubbleRow(row, NOW_SEC);
+  assert.equal(text.primaryLabel, null); // 消除 `Cursor · Cursor`
+  assert.equal(text.resetShort, null);
+  assert.equal(text.resetTitle, null);
+  assert.equal(text.ariaLabel, 'Cursor Pro 剩余 20%');
+
+  // trim + 小写归一：带空白 / 大小写差异同样视为同名。
+  const spaced = formatCompactBubbleRow({ ...row, primaryLabel: ' cursor ' }, NOW_SEC);
+  assert.equal(spaced.primaryLabel, null);
+  // 同名但有重置点时 resetTitle 退化为不带窗口名的完整中文。
+  const withReset = formatCompactBubbleRow(
+    { ...row, resetsAtSec: NOW_SEC + 18 * MIN },
+    NOW_SEC,
+  );
+  assert.equal(withReset.primaryLabel, null);
+  assert.equal(withReset.resetShort, '18:04');
+  assert.equal(withReset.resetTitle, '今天 18:04 重置');
+  assert.equal(withReset.ariaLabel, 'Cursor Pro 剩余 20%，今天 18:04 重置');
+});
+
+test('formatCompactBubbleRow: 非 5h 主窗口保留窗口标签（7d/30d/Plan/Credits/余额/积分等）', () => {
+  const row = {
+    key: 'kimi' as const,
+    title: 'Kimi Code',
+    planLabel: null,
+    primaryLabel: '7d',
+    remainingPercent: 78,
+    // fixture 17:46 + 1h45m = 同日 19:31（GMT+8）
+    resetsAtSec: NOW_SEC + HOUR + 45 * MIN,
+    stale: false,
+    hasData: true,
+  };
+  const text = formatCompactBubbleRow(row, NOW_SEC);
+  assert.equal(text.primaryLabel, '7d');
+  assert.equal(text.resetShort, '19:31');
+  assert.equal(text.resetTitle, '7d 窗口 今天 19:31 重置');
+  assert.equal(
+    text.ariaLabel,
+    'Kimi Code 7d 窗口剩余 78%，今天 19:31 重置',
+  );
+});
+
+test('formatCompactBubbleRow: 过期 / null / 0 重置点 → resetShort/resetTitle 为 null', () => {
+  const expired = {
+    key: 'grok' as const,
+    title: 'Grok',
+    planLabel: null,
+    primaryLabel: '5h',
+    remainingPercent: 80,
+    resetsAtSec: NOW_SEC - 1, // 已过
+    stale: false,
+    hasData: true,
+  };
+  const text = formatCompactBubbleRow(expired, NOW_SEC);
+  assert.equal(text.resetShort, null);
+  assert.equal(text.resetTitle, null);
+  // aria-label 不附「…分钟后重置」尾巴
+  assert.equal(text.ariaLabel, 'Grok 5h 窗口剩余 80%');
+
+  const nullReset = { ...expired, resetsAtSec: null };
+  const t2 = formatCompactBubbleRow(nullReset, NOW_SEC);
+  assert.equal(t2.resetShort, null);
+  assert.equal(t2.ariaLabel, 'Grok 5h 窗口剩余 80%');
+});
+
+test('formatCompactBubbleRow: planLabel 空串归一为 null；stale 透传；无 plan 无双空格', () => {
+  const withPlan = {
+    key: 'ark' as const,
+    title: '火山方舟 Agent Plan',
+    planLabel: 'medium',
+    primaryLabel: '5h',
+    remainingPercent: 0,
+    resetsAtSec: NOW_SEC + 18 * MIN,
+    stale: true,
+    hasData: true,
+  };
+  const text = formatCompactBubbleRow(withPlan, NOW_SEC);
+  assert.equal(text.planLabel, 'medium'); // 仅悬浮用
+  assert.equal(text.stale, true);
+  assert.equal(text.resetShort, '18:04');
+  // stale 只在模型层透传（mood/告警依赖）：气泡所有可见文案均不带
+  // 「旧」「已过期」后缀（title / ariaLabel / resetTitle / planLabel）。
+  for (const visible of [text.title, text.ariaLabel, text.resetTitle ?? '', text.planLabel ?? '']) {
+    assert.equal(visible.includes('旧'), false, `unexpected 旧 in: ${visible}`);
+    assert.equal(visible.includes('已过期'), false, `unexpected 已过期 in: ${visible}`);
+  }
+
+  const emptyPlan = formatCompactBubbleRow({ ...withPlan, planLabel: '   ' }, NOW_SEC);
+  assert.equal(emptyPlan.planLabel, null);
+
+  const noPlan = formatCompactBubbleRow({ ...withPlan, planLabel: null }, NOW_SEC);
+  assert.equal(noPlan.planLabel, null);
+  assert.equal(
+    noPlan.ariaLabel,
+    '火山方舟 Agent Plan 5h 窗口剩余 0%，今天 18:04 重置',
+  );
+});
+
+test('formatCompactBubbleRow: 与 projectToCompactRows 端到端拼装可还原真实三连行', () => {
+  // 真实典型三连：Cursor / 火山方舟 Agent Plan / Minimax CN
+  const aggregate = buildPetQuotaAggregate(
+    [
+      // Cursor 无重置点、planLabel=Free、primary=Cursor（与 title 同名 → 隐藏）
+      { provider: 'cursor', snapshot: {
+        status: 'ready',
+        planLabel: 'Free',
+        cursorModels: { usedPercent: 100, resetsAt: null },
+        otherModels: null,
+        plan: null,
+        fetchedAt: FUTURE_SEC,
+        stale: false,
+        message: null,
+      } },
+      // 火山方舟 Agent Plan 5h / 同日 18:04 重置
+      { provider: 'ark', snapshot: arkFixture({
+        planLabel: 'medium',
+        limits: [
+          { id: 'monthly', label: '30d', usedPercent: 5, resetsAt: FUTURE_SEC + 200 },
+          { id: 'five-hour', label: '5h', usedPercent: 90, resetsAt: NOW_SEC + 18 * MIN },
+          { id: 'weekly', label: '7d', usedPercent: 10, resetsAt: FUTURE_SEC + 100 },
+        ],
+      }) },
+      // Minimax CN 5h / 同日 19:31 重置
+      { provider: 'minimax', snapshot: {
+        status: 'ready',
+        planLabel: 'Coding Plan',
+        region: 'mainland',
+        limits: [{ id: 'five-hour', label: '5h', usedPercent: 9, resetsAt: NOW_SEC + HOUR + 45 * MIN }],
+        fetchedAt: FUTURE_SEC,
+        stale: false,
+        message: null,
+      } },
+    ],
+    NOW_MS,
+  );
+  const rows = projectToCompactRows(aggregate);
+  const texts = rows.map((row) => formatCompactBubbleRow(row, NOW_SEC));
+  // Cursor：0% 剩余，同名窗口标签隐藏，无重置 → 纯数字行
+  const cursor = texts.find((t) => t.title === 'Cursor');
+  assert.ok(cursor);
+  assert.equal(cursor!.planLabel, 'Free');
+  assert.equal(cursor!.primaryLabel, null);
+  assert.equal(cursor!.resetShort, null);
+  assert.equal(cursor!.remainingPercent, 0);
+  // 火山方舟：5h 恒显、18:04 短形态
+  const ark = texts.find((t) => t.title === '火山方舟 Agent Plan');
+  assert.ok(ark);
+  assert.equal(ark!.planLabel, 'medium');
+  assert.equal(ark!.primaryLabel, '5h');
+  assert.equal(ark!.resetShort, '18:04');
+  assert.equal(ark!.remainingPercent, 10);
+  // Minimax CN：19:31 短形态、5h 恒显
+  const cn = texts.find((t) => t.title === 'Minimax CN');
+  assert.ok(cn);
+  assert.equal(cn!.primaryLabel, '5h');
+  assert.equal(cn!.resetShort, '19:31');
+  assert.equal(cn!.remainingPercent, 91);
+  // resetTitle 始终含窗口名保悬浮可读
+  assert.equal(ark!.resetTitle, '5h 窗口 今天 18:04 重置');
+  assert.equal(cn!.resetTitle, '5h 窗口 今天 19:31 重置');
 });

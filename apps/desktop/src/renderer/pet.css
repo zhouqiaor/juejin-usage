@@ -1,3 +1,8 @@
+/* pet.css 与 index.css 同走 electron-vite renderer 构建，裸模块 @import
+   可被 vite 解析（同 index.css 既有先例）。pet.html 不加载 index.css，
+   需要在这里单独引入，数字字体才能与 Dashboard 一致。 */
+@import "@fontsource-variable/jetbrains-mono";
+
 html,
 body,
 #root {
@@ -86,25 +91,50 @@ body,
 }
 
 .desktop-pet-bubble {
+  /* 纯定位容器：仅负责把卡片锚定到 sprite 上方居中位置。视觉属性
+     （白底/圆角/阴影/内边距/宽高）全部下放给 .desktop-pet-bubble-card。
+     容器本身保持透明：气泡向上扩高时白底只覆盖卡片区域，不再向下遮挡
+     sprite 头部。pointer-events:none 让鼠标穿过容器直达 sprite；
+     卡片层 pointer-events:auto 仍可接收鼠标事件。 */
+  left: 50%;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.desktop-pet-bubble-card {
   background: #fff;
   border-radius: 12px;
   box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
   box-sizing: border-box;
   color: #171717;
-  left: 50%;
+  /* 宽度由内容决定（renderer 内联给 [210,390] min/max）；main 围绕 sprite
+     中心线对称扩窗。必须用 max-content 而非 fit-content：容器自身是
+     shrink-to-fit 的绝对定位元素，fit-content 的可用宽度不确定、会退化为
+     min-width，导致套餐名在内容明明放得下时仍被截断。 */
+  width: max-content;
   padding: 8px 12px;
-  position: absolute;
-  transform: translateX(-50%);
-  z-index: 2;
+  pointer-events: auto;
 }
 
 .desktop-pet-bubble-range {
   color: #737373;
+  font-family: "JetBrains Mono Variable", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", system-ui, sans-serif;
   font-size: 10px;
   letter-spacing: 0.02em;
   line-height: 1.2;
   margin-bottom: 6px;
   text-align: center;
+}
+
+/* 气泡内数字（百分比/倒计时）与 Dashboard 统一走 JetBrains Mono Variable；
+   中文字形回退 PingFang/雅黑栈，不把整卡换成等宽。 */
+.pet-bubble-num {
+  font-family: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", monospace;
 }
 
 /* 合并气泡：今日统计 / 套餐余量 两分区之间的细分隔线 */
@@ -239,6 +269,9 @@ body,
 }
 
 .desktop-pet-stat-value {
+  font-family: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", monospace;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   font-weight: 600;

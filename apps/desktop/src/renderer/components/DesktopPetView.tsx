@@ -19,9 +19,12 @@ import {
   type DashboardRange,
 } from '../../shared/dashboard-range';
 import {
+  DESKTOP_PET_POPOVER_MAX_WIDTH,
+  DESKTOP_PET_POPOVER_MIN_WIDTH,
   DESKTOP_PET_SOURCE_HEIGHT,
   DESKTOP_PET_SOURCE_WIDTH,
   getDesktopPetLayout,
+  resolveBubbleBodyClip,
 } from '../../shared/desktop-pet-layout';
 import {
   PET_SPRITESHEET_HEIGHT,
@@ -136,10 +139,17 @@ export function DesktopPetView() {
   const spriteRef = useRef<HTMLButtonElement>(null);
   /** 动效层：挂在 sprite 后、stage 内，mood 切换时挂 pet-mood-* class 触发 CSS 动画。 */
   const fxRef = useRef<HTMLSpanElement>(null);
-  /** 合并气泡容器；用其实际高度请求 main 向上扩高透明宿主窗口。 */
+  /** 合并气泡容器；用其实际宽度请求 main 对称扩宽透明宿主窗口。 */
   const bubbleRef = useRef<HTMLDivElement>(null);
+  /**
+   * 气泡内容包裹层：上报高度取自它的 scrollHeight（自然内容高度，不受自身
+   * max-height 钳制），否则量到的永远是钳制后的 offsetHeight，窗口永远扩不够。
+   */
+  const bubbleBodyRef = useRef<HTMLDivElement>(null);
   /** main 实际准予的额外窗口高度（屏幕顶边不足时小于请求值）。 */
   const [grantedBubbleExtra, setGrantedBubbleExtra] = useState(0);
+  /** 最近一次测得的 body 自然内容高度（px）；0 = 尚未测量/气泡关闭。 */
+  const [naturalBodyHeight, setNaturalBodyHeight] = useState(0);
   const frameRef = useRef(0);
   const alphaCanvas = useRef<HTMLCanvasElement | null>(null);
   const ignored = useRef(false);
@@ -646,43 +656,85 @@ export function DesktopPetView() {
   const isBubbleOpen = mergedBubble.bubbleVisible;
 
   /**
-   * 把合并气泡的实际高度上报 main：默认窗口只在 sprite 上方预留
-   * popoverTop-gap=108px，超出部分由 main 把透明宿主窗向上扩高（sprite
-   * 屏幕位置不动）；main 不设固定 px 上限，只按屏幕顶边 ≥8px 动态钳制，
-   * 因此正常密度下准予高度 == 内容高度，body max-height 恰好等于内容、
-   * 不出滚动条；只有屏幕真的不够高时准予值偏小，body max-height + 内部
-   * 滚动才作为极端兜底。ResizeObserver 覆盖今日三态/套餐异步加载引起的变高。
+   * 把合并气泡的实际尺寸上报 main：默认窗口只在 sprite 上方预留
+   * popoverTop-gap=108px、四周 240px 宽的基础占位；气泡本体在 CSS 上是
+   * width:max-content + [210,390] 夹取（宽度由内容决定、与窗口宽度无关，
+   * 因此宽度测量不会回灌形成循环），超出的宽度由 main 围绕 sprite 中心线对称
+   * 扩窗、高度向上扩高（sprite 屏幕位置不动）。
+   *
+   * 高度反馈环（死循环防护）：上报高度取 body 的 scrollHeight（自然内容高度，
+   * 即使 body 当时正被 max-height 钳制也不受影响）；main 在 workArea 顶边允许
+   * 范围内全额准予后，bodyMaxHeight 解除、不再滚动。绝不能报 offsetHeight——
+   * 那是被 max-height 钳制后的值，窗口永远扩不够、滚动条永远在。ResizeObserver
+   * 覆盖今日三态/套餐异步加载/宽度变化引起的文字重排变高，宽→重排→高的二次
+   * 上报由同值去重收敛。rAF 微节流，乱序响应只接受最后一次；main 顶边真的不
+   * 够（grant < want）时才给 body 加 max-height + 内部滚动兜底。
    */
   useLayoutEffect(() => {
     if (!isBubbleOpen) {
       setGrantedBubbleExtra(0);
+      setNaturalBodyHeight(0);
       return;
     }
     const el = bubbleRef.current;
     if (!el) return;
     let cancelled = false;
+    let rafId = 0;
+    let lastSentKey: string | null = null;
+    let latestSeq = 0;
     const report = () => {
-      const height = el.offsetHeight;
-      void window.tud.setDesktopPetBubbleHeight(height)
+      rafId = 0;
+      if (cancelled) return;
+      const body = bubbleBodyRef.current;
+      // scrollHeight = 完整内容高度（含当前因 max-height 被裁掉的部分）；
+      // 退回 offset 路径只在 body ref 缺失时发生。
+      const naturalHeight = body
+        ? body.scrollHeight + BUBBLE_VERTICAL_PADDING_PX
+        : el.offsetHeight;
+      if (naturalHeight > 0) setNaturalBodyHeight(naturalHeight - BUBBLE_VERTICAL_PADDING_PX);
+      const size = { width: el.offsetWidth, height: naturalHeight };
+      const key = `${size.width}x${size.height}`;
+      if (key === lastSentKey) return;
+      lastSentKey = key;
+      const seq = ++latestSeq;
+      void window.tud.setDesktopPetBubbleBounds(size)
         .then((granted) => {
-          if (!cancelled && typeof granted === 'number') setGrantedBubbleExtra(granted);
+          if (!cancelled && seq === latestSeq && typeof granted === 'number') {
+            setGrantedBubbleExtra(granted);
+          }
         })
         .catch(() => { /* IPC 不可用：退回固定预留高度 + 内部滚动 */ });
     };
+    const schedule = () => {
+      if (rafId !== 0) return;
+      rafId = window.requestAnimationFrame(report);
+    };
+    // 首次同步上报，赶在首帧绘制前把窗口扩到位，避免一帧的裁切。
     report();
-    const observer = new ResizeObserver(report);
+    const observer = new ResizeObserver(schedule);
     observer.observe(el);
     return () => {
       cancelled = true;
+      if (rafId !== 0) window.cancelAnimationFrame(rafId);
       observer.disconnect();
-      window.tud.setDesktopPetBubbleHeight(0).catch(() => {});
+      window.tud.setDesktopPetBubbleBounds({ width: 0, height: 0 }).catch(() => {});
     };
   }, [isBubbleOpen, scale]);
 
   const summaryState: 'error' | 'loading' | 'ready' =
     summaryError ? 'error' : summary === null ? 'loading' : 'ready';
-  const bodyMaxHeight =
-    layout.popoverTop - BUBBLE_GAP_PX - BUBBLE_VERTICAL_PADDING_PX + grantedBubbleExtra;
+  // 仅当 main 受 workArea 顶边所限、准予高度装不下自然内容时才钳制并滚动；
+  // 准予足额时不加 max-height（纯函数，宽→重排→高反馈环收敛后滚动条消失）。
+  const bodyClip = resolveBubbleBodyClip({
+    naturalBodyHeightPx: naturalBodyHeight,
+    grantedHeightExtra: grantedBubbleExtra,
+    popoverTop: layout.popoverTop,
+    gapPx: BUBBLE_GAP_PX,
+    verticalPaddingPx: BUBBLE_VERTICAL_PADDING_PX,
+  });
+  const bodyStyle: CSSProperties | undefined = bodyClip.needsScroll
+    ? { maxHeight: bodyClip.maxHeightPx ?? undefined, overflowY: 'auto' }
+    : undefined;
   let bubbleContent: JSX.Element | null = null;
   if (isBubbleOpen) {
     bubbleContent = syncFeedback ? (
@@ -742,15 +794,26 @@ export function DesktopPetView() {
       {isBubbleOpen ? (
         <div
           className="desktop-pet-bubble"
-          onMouseEnter={() => setMouseIgnored(false)}
           ref={bubbleRef}
-          style={{ width: layout.popoverWidth, bottom: spriteHeight + BUBBLE_GAP_PX }}
+          style={{
+            bottom: spriteHeight + BUBBLE_GAP_PX,
+          }}
         >
           <div
-            className="desktop-pet-bubble-body"
-            style={{ maxHeight: bodyMaxHeight, overflowY: 'auto' }}
+            className="desktop-pet-bubble-card"
+            onMouseEnter={() => setMouseIgnored(false)}
+            style={{
+              maxWidth: DESKTOP_PET_POPOVER_MAX_WIDTH,
+              minWidth: DESKTOP_PET_POPOVER_MIN_WIDTH,
+            }}
           >
-            {bubbleContent}
+            <div
+              className="desktop-pet-bubble-body"
+              ref={bubbleBodyRef}
+              style={bodyStyle}
+            >
+              {bubbleContent}
+            </div>
           </div>
           <span aria-hidden className="desktop-pet-bubble-arrow" />
         </div>
@@ -770,7 +833,7 @@ export function DesktopPetView() {
           width: spriteWidth,
           height: spriteHeight,
           left: layout.spriteLeft,
-          top: layout.spriteTop,
+          bottom: 0,
           '--pet-glow-primary': pet.glow.primary,
           '--pet-glow-accent': pet.glow.accent,
           // mood 伪元素装饰（问号/汗珠/ring/趴窝位移）不在精灵 background 的
