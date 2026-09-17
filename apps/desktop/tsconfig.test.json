@@ -101,6 +101,8 @@
     "src/shared/subscription-reset.ts",
     "src/shared/subscription-reset.test.ts",
     "src/shared/freshness.ts",
-    "src/shared/freshness.test.ts"
+    "src/shared/freshness.test.ts",
+    "src/shared/subscription-prefs.ts",
+    "src/shared/subscription-prefs.test.ts"
   ]
 }
