@@ -74,68 +74,48 @@ export function SubscriptionUsageCard({
     ? buildStaleTooltip(data.fetchedAt, data.errorMessage, canRetry)
     : undefined;
 
-  // 正常态弱化绝对时间；stale 态显相对时间并跟随警告色，整体提示数据可疑。
-  const updateText =
-    data.fetchedAt != null
-      ? isStale
-        ? formatRelativeUpdate(data.fetchedAt, nowSec)
-        : `更新于 ${formatHHmmss(data.fetchedAt)}`
+  // 正常态：绝对时间不占视觉层级，只挂标题行 tooltip；stale 态：显相对时间（分钟粒度，本就无秒），跟随警告色。
+  const staleText =
+    isStale && data.fetchedAt != null
+      ? formatRelativeUpdate(data.fetchedAt, nowSec)
       : '';
-  const updateTitle =
-    data.fetchedAt != null
-      ? isStale
-        ? staleTooltip
-        : `数据更新于 ${formatHHmmss(data.fetchedAt)}`
+  const freshTitle =
+    !isStale && data.fetchedAt != null
+      ? `数据更新于 ${formatHHmmss(data.fetchedAt)}`
       : undefined;
-
-  const chipCls =
-    'shrink-0 select-none rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none';
-  const chipStyle = warnColor
-    ? { color: warnColor, backgroundColor: `${warnColor}1a`, borderColor: `${warnColor}59` }
-    : undefined;
-  const chipContent = retrying ? '刷新中…' : '数据延迟';
 
   return (
     <Card className="min-w-0 overflow-hidden rounded-2xl p-3">
       <Card.Content className="grid grid-rows-[1.5rem_auto] gap-2 p-0">
         <div className="flex min-w-0 items-center gap-3">
           {data.icon}
-          <p className="min-w-0 truncate text-xs font-semibold text-foreground">
+          <p
+            className="min-w-0 truncate text-xs font-semibold text-foreground"
+            title={freshTitle}
+          >
             {data.title}
           </p>
-          {isStale || updateText ? (
-            <span
-              className={`flex shrink-0 items-center gap-1.5 ${canRetry ? 'cursor-pointer' : ''}`}
-              onClick={canRetry ? onRetry : undefined}
-            >
-              {isStale && warnColor
-                ? canRetry
-                  ? (
-                    <button
-                      type="button"
-                      className={`${chipCls} cursor-pointer bg-transparent`}
-                      style={chipStyle}
-                      title={staleTooltip}
-                    >
-                      {chipContent}
-                    </button>
-                    )
-                  : (
-                    <span className={chipCls} style={chipStyle} title={staleTooltip}>
-                      {chipContent}
-                    </span>
-                    )
-                : null}
-              {updateText ? (
-                <span
-                  className="shrink-0 text-[10px] leading-none"
-                  style={isStale && warnColor ? { color: warnColor } : undefined}
-                  title={updateTitle}
-                >
-                  <span className={isStale ? '' : 'text-muted'}>{updateText}</span>
-                </span>
-              ) : null}
-            </span>
+          {isStale ? (
+            canRetry ? (
+              <button
+                type="button"
+                className="shrink-0 cursor-pointer bg-transparent p-0 text-[10px] font-medium leading-none disabled:cursor-default disabled:opacity-100"
+                style={warnColor ? { color: warnColor } : undefined}
+                title={staleTooltip}
+                onClick={onRetry}
+                disabled={retrying}
+              >
+                {retrying ? '刷新中…' : staleText || '数据延迟'}
+              </button>
+            ) : (
+              <span
+                className="shrink-0 text-[10px] font-medium leading-none"
+                style={warnColor ? { color: warnColor } : undefined}
+                title={staleTooltip}
+              >
+                {staleText || '数据延迟'}
+              </span>
+            )
           ) : null}
         </div>
         {visibleMetrics.length > 0 ? (
@@ -155,22 +135,28 @@ function SubscriptionProgressBars({
   title: string;
 }) {
   return (
-    <div className="flex min-h-12 flex-col gap-1.5">
-      {metrics.slice(0, 3).map((metric) => (
-        <div key={metric.label} className="space-y-0.5">
+    <>
+      <div className="grid min-h-12 auto-rows-5 content-start gap-1.5">
+        {metrics.slice(0, 3).map((metric) => (
           <MetricBarRow
+            key={metric.label}
             ariaLabel={`${title} ${metric.label}剩余 ${Math.round(metric.remainingPercent)}%`}
             color={metric.color}
             label={metric.label}
-            labelTitle={metric.labelTitle}
+            // 重置时刻并入 label tooltip：与既有说明/「已用 x/y」用 · 连接；无附加信息时退化为重置文案
+            labelTitle={
+              [metric.labelTitle, metric.resetLabel].filter(Boolean).join(' · ') || undefined
+            }
             percent={metric.remainingPercent}
             valueText={metric.valueText ?? `${Math.round(metric.remainingPercent)}%`}
           />
-          {metric.resetLabel ? (
-            <p className="pl-[68px] text-[10px] leading-3 text-muted">{metric.resetLabel}</p>
-          ) : null}
-        </div>
-      ))}
-    </div>
+        ))}
+      </div>
+      {metrics[0]?.resetLabel ? (
+        <p className="pl-[68px] pt-0.5 text-[10px] leading-3 text-muted">
+          {metrics[0].resetLabel}
+        </p>
+      ) : null}
+    </>
   );
 }
