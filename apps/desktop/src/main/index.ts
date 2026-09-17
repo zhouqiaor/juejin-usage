@@ -46,6 +46,7 @@ import { registerTraeSubscriptionIpc } from './trae-subscription-ipc';
 import { registerWorkBuddySubscriptionIpc } from './workbuddy-subscription-ipc';
 import { registerSubscriptionKeysIpc } from './subscription-keys-ipc';
 import { registerArkSubscriptionIpc } from './ark-subscription-ipc';
+import { registerPcBridgeIpc } from './pc-bridge-ipc';
 import {
   localApiRequest,
   pokeSyncOnForeground,
@@ -495,6 +496,7 @@ void acquireDesktopInstanceLock().then((gotLock) => {
     disposeWorkBuddySubscriptionIpc = registerWorkBuddySubscriptionIpc();
     disposeSubscriptionKeysIpc = registerSubscriptionKeysIpc();
     disposeArkSubscriptionIpc = registerArkSubscriptionIpc();
+    registerPcBridgeIpc();
     try {
       await initAutostartOnLaunch();
     } catch (err) {
