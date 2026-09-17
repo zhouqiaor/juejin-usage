@@ -95,11 +95,12 @@ export function MiniMaxSubscriptionCard() {
 
   const rateLimited = snapshot.limits.some((l) => l.rateLimited);
   const models = Array.from(new Set(snapshot.limits.map((l) => l.modelName).filter(Boolean) as string[]));
-  const titleSuffix = [
-    rateLimited ? '· 限流' : '',
-    models.length > 0 ? `· ${models.join('/')}` : '',
-  ].filter(Boolean).join(' ');
-  const fullTitle = titleSuffix ? `${titleText} ${titleSuffix}` : titleText;
+  // 模型名/限流不进标题：标题只留品牌短名；副标题行 10px muted，全名进 title tooltip。
+  const subtitleParts = [
+    models.length > 0 ? models.join('/') : '',
+    rateLimited ? '限流' : '',
+  ].filter(Boolean);
+  const subtitle = subtitleParts.join(' · ');
 
   const metrics = snapshot.limits.map((limit: MiniMaxRateLimitWindow, index) => {
     const resetText = formatResetCountdown(limit.resetsAt, now);
@@ -132,7 +133,15 @@ export function MiniMaxSubscriptionCard() {
         stale: snapshot.stale,
         fetchedAt: snapshot.fetchedAt,
         errorMessage: snapshot.message,
-        title: fullTitle,
+        title: titleText,
+        footer: subtitle ? (
+          <p
+            className="truncate text-[10px] leading-4 text-muted"
+            title={`模型：${models.join(', ')}${rateLimited ? '；当前限流' : ''}`}
+          >
+            {subtitle}
+          </p>
+        ) : undefined,
       }}
       loading={loading}
       onRetry={handleRetry}
