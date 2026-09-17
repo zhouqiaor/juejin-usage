@@ -1,30 +1,29 @@
 // SPDX-License-Identifier: MIT
 // main/pc-bridge-http.ts
 //
-// D4 数据通路第一阶段：juejin-usage 桌面端「局域网 HTTP 桥接」。
+// D4 数据通路 MVP：juejin-usage 桌面端「局域网 HTTP 桥接」。
 //
 // - 监听独立端口 8453（与 sidecar 8452 隔离），仅暴露 GET /api/usage/summary
-// - 用一次性临时 token 做鉴权（每次 enable 轮换），PlanPulse 通过 QR 配对后周期拉取
+// - 128-bit token query 鉴权（enable 时生成、重复 enable 轮换、disable 清空）
+// - 响应载荷冻结为 v1 契约（pc-bridge-schema.ts）；错误体为 JSON {error:{code,message}}
 // - 纯 node:http 实现，不引用 electron，因此可在 node:test 中直接单测
 //
-// 设计文档：tools/quota-app-android/docs/DESIGN-2026-09-16-juejin-sync.md（方案 1）
+// 设计文档：tools/quota-app-android/docs/DESIGN-2026-09-17-pcbridge-mvp.md
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { networkInterfaces } from 'node:os';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+
+import type { PcBridgeSummaryV1 } from './pc-bridge-schema.js';
 
 export const PC_BRIDGE_DEFAULT_HOST = '0.0.0.0';
 export const PC_BRIDGE_DEFAULT_PORT = 8453;
 export const PC_BRIDGE_PATH = '/api/usage/summary';
 
-/**
- * 用量摘要载荷。
- * 第一阶段直接透传 core 现有 summary（来自 aggregateCache.getUsageSummary），
- * 后续可收敛为设计文档 §三 的 UsageSummary schema（asOf/version/today/window5h）。
- */
-export type UsageSummary = unknown;
+/** v1 桥接载荷（冻结契约见 pc-bridge-schema.ts）。 */
+export type UsageSummary = PcBridgeSummaryV1;
 
 export interface PcBridgeDeps {
-  /** 返回当前用量摘要；由 desktop 端用 local-runtime 的 aggregateCache 提供。 */
+  /** 返回当前 v1 用量摘要；由 desktop 端经 IPC 层 mapper 提供。 */
   getUsageSummary: () => UsageSummary | Promise<UsageSummary>;
 }
 
@@ -39,7 +38,7 @@ export interface PcBridgeInfo {
   ip: string;
   /** 当前临时 token；未 enable 时为 null */
   token: string | null;
-  /** 配对 URL（含临时 token），PlanPulse 扫描后直连拉取；未 enable 时为 null */
+  /** 配对 URL（含临时 token），PlanPulse 解析后直连拉取；未 enable 时为 null */
   url: string | null;
 }
 
@@ -70,42 +69,50 @@ function buildPairingUrl(ip: string, p: number, t: string): string {
   return `http://${ip}:${p}${PC_BRIDGE_PATH}?token=${t}`;
 }
 
+/** 常量时间字符串比较（长度不同时提前返回，不泄露 token 本身以外的信息）。 */
+function tokenMatches(provided: string | null, expected: string | null): boolean {
+  if (!expected || !provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function sendError(res: ServerResponse, status: 400 | 401 | 404 | 500, code: string, message: string): void {
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.end(JSON.stringify({ error: { code, message } }));
+}
+
 function handleRequest(req: IncomingMessage, res: ServerResponse): void {
   const rawUrl = req.url ?? '/';
   let parsed: URL;
   try {
     parsed = new URL(rawUrl, `http://${host}:${port}`);
   } catch {
-    res.statusCode = 400;
-    res.end();
+    sendError(res, 400, 'BAD_REQUEST', 'malformed request');
     return;
   }
 
   if (req.method !== 'GET' || parsed.pathname !== PC_BRIDGE_PATH) {
-    res.statusCode = 404;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end('Not Found');
+    sendError(res, 404, 'NOT_FOUND', 'unknown endpoint');
     return;
   }
 
-  const provided = parsed.searchParams.get('token');
-  if (!token || provided !== token) {
-    res.statusCode = 401;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end('Unauthorized');
+  if (!tokenMatches(parsed.searchParams.get('token'), token)) {
+    sendError(res, 401, 'UNAUTHORIZED', 'invalid or missing token');
     return;
   }
 
   Promise.resolve(deps ? deps.getUsageSummary() : null)
-    .then((summary: UsageSummary) => {
+    .then((summary: UsageSummary | null) => {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify(summary));
     })
-    .catch((err: unknown) => {
-      res.statusCode = 500;
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.end(err instanceof Error ? err.message : 'Internal error');
+    .catch(() => {
+      // 原始错误只进主进程日志，不向局域网回传内部细节
+      sendError(res, 500, 'INTERNAL', 'usage summary unavailable');
     });
 }
 

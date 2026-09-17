@@ -88,6 +88,8 @@
     "src/shared/ark-token-packs.test.ts",
     "src/main/ark-subscription.ts",
     "src/main/ark-subscription.test.ts",
+    "src/main/pc-bridge-schema.ts",
+    "src/main/pc-bridge-schema.test.ts",
     "src/main/pc-bridge-http.ts",
     "src/main/pc-bridge-http.test.ts",
     "src/main/ark-signing.ts",
