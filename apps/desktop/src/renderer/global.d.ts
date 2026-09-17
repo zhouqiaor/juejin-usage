@@ -197,7 +197,10 @@ declare global {
       setDesktopPetMouseIgnored: (ignored: boolean) => void;
       beginDesktopPetDrag: () => void;
       endDesktopPetDrag: () => void;
-      setDesktopPetBubbleHeight: (heightPx: number) => Promise<number>;
+      setDesktopPetBubbleBounds: (size: {
+        width: number;
+        height: number;
+      }) => Promise<number>;
       onDesktopPetAnimation: (
         callback: (animation: 'idle' | 'running-left' | 'running-right') => void,
       ) => () => void;

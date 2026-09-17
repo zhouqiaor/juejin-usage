@@ -19,7 +19,12 @@ import {
 } from './autostart';
 import { isQuotaAlertThreshold } from '../shared/pet-quota-alert';
 import { defaultPreloadPath } from './DesktopWindow';
-import { getDesktopPetLayout } from '../shared/desktop-pet-layout';
+import {
+  clampBubbleWidth,
+  DESKTOP_PET_SCREEN_MARGIN_PX,
+  getDesktopPetLayout,
+  resolveBubbleWindowBounds,
+} from '../shared/desktop-pet-layout';
 import {
   desktopPetDirectory,
   getDesktopPetSpritesheetUrl,
@@ -49,16 +54,16 @@ const PET_FETCH_REMOTE_CATALOG_CHANNEL = 'desktop-pet:fetch-remote-catalog';
 const PET_INSTALL_REMOTE_CHANNEL = 'desktop-pet:install-remote';
 const PET_OPEN_DIRECTORY_CHANNEL = 'desktop-pet:open-directory';
 const PET_SPRITESHEET_URL_CHANNEL = 'desktop-pet:spritesheet-url';
-/** renderer 上报气泡实际内容高度（px），返回 main 实际准予向上扩出的额外高度。 */
-const PET_SET_BUBBLE_HEIGHT_CHANNEL = 'desktop-pet:set-bubble-height';
+/** renderer 上报气泡实际内容尺寸（px），返回 main 实际准予向上扩出的额外高度。 */
+const PET_SET_BUBBLE_BOUNDS_CHANNEL = 'desktop-pet:set-bubble-bounds';
 /** 与 renderer BUBBLE_GAP_PX 保持一致：气泡底边距 sprite 的间隙。 */
 const PET_BUBBLE_GAP_PX = 8;
 /**
- * 气泡再高也不允许窗口顶边贴上屏幕：动态按显示器可用区钳制（屏幕顶边至少留
- * 8px）。无固定 px 上限——内容多高就向上扩多高；空间真的不足时由 renderer
- * 的 body max-height + 内部滚动作为极端兜底。
+ * 气泡再高/再宽也不允许窗口贴上屏幕：动态按显示器可用区钳制（四边至少留
+ * 8px）。高度无固定 px 上限——内容多高就向上扩多高；空间真的不足时由
+ * renderer 的 body max-height + 内部滚动作为极端兜底。
  */
-const PET_BUBBLE_TOP_MARGIN_PX = 8;
+const PET_BUBBLE_SCREEN_MARGIN_PX = DESKTOP_PET_SCREEN_MARGIN_PX;
 const PET_MARGIN = 24;
 const BUILTIN_PETS = [
   { id: 'hawking', displayName: 'Hawking', description: '橙色、锐眼的土星伙伴', glow: { primary: '#ff7a1a', accent: '#ffd21f' }, source: 'builtin' as const },
@@ -110,6 +115,27 @@ let autoMoveRun: AutoMoveRun | null = null;
  * 实际准予值可能小于请求值，renderer 据此给气泡内容加 max-height 滚动兜底。
  */
 let bubbleExtraPx = 0;
+/** 已应用的气泡宽度（clamp 后）；null = 气泡关闭，窗口宽度回到 base。 */
+let bubbleAppliedWidth: number | null = null;
+/** renderer 最近一次上报的气泡内容高度（scale 变化/跨显示器后据此重算）。 */
+let bubbleDesiredHeightPx = 0;
+/**
+ * 保存的 sprite 屏幕锚点：sprite 中心线 x（= 窗口中心）与底边 y（= 窗口底边）。
+ * 所有气泡几何都以它为锚，绝不用可能陈旧/中间态的实时 getBounds() 反复累加，
+ * 因此 persistent 模式下 renderer 高频重复上报的解析结果幂等、坐标不漂。
+ * 仅在真实位移（拖拽/自动散步/OS move）与窗口创建时更新；气泡对称扩缩本就
+ * 保持该锚点不变。
+ */
+let spriteAnchor: { cx: number; bottom: number } | null = null;
+/** 合流计时器：一个 flush 窗口内 renderer 的多次上报只触发一次重算/setBounds。 */
+let bubbleFlushTimer: ReturnType<typeof setTimeout> | null = null;
+/** 等待本轮合流结果（grantedHeightExtra）的 IPC 调用方。 */
+let bubbleFlushWaiters: Array<(granted: number) => void> = [];
+let bubbleCommitInFlight = false;
+/** setBounds 由气泡几何驱动时短暂置位：此时的 move 事件不更新 sprite 锚点。 */
+let suppressAnchorCapture = false;
+/** 合流窗口：覆盖一帧 + ResizeObserver 抖动；同值结果在 commit 内去重跳过。 */
+const BUBBLE_FLUSH_MS = 32;
 
 /** ~120Hz: fast enough to feel glued to the cursor, cheap enough to stay smooth. */
 const DRAG_TICK_MS = 8;
@@ -135,45 +161,177 @@ function petDimensions(scale: number) {
 }
 
 /**
- * 合并气泡按内容自适应高度：超出基础头部预留的部分让窗口向上扩高
- * （y 上移、窗口底边/sprite 屏幕位置不动）。返回实际准予的额外像素；
- * 无固定 px 上限，只按所在显示器可用区动态钳制（顶边至少留
- * PET_BUBBLE_TOP_MARGIN_PX）；空间不足时准予值小于请求值，renderer 用
- * body max-height + 内部滚动作为极端兜底。高度为 0（气泡隐藏）时收回全部扩高。
+ * 合并气泡按内容自适应尺寸（renderer ResizeObserver 同一通道上报宽高）：
+ * 高度让窗口向上扩高（底边/sprite 不动）、宽度围绕 sprite 中心线对称扩宽，
+ * 两维都经 resolveBubbleWindowBounds 按所在显示器 workArea 四边钳制；高度
+ * 空间不足时返回值小于「想要的扩高」，renderer 用 body max-height + 内部
+ * 滚动兜底。宽/高为 0（气泡隐藏）时收回基础占位。
+ *
+ * 写窗口只有这一个入口（applyBubbleBounds 高频上报、doSyncDesktopPet、拖拽
+ * 结束重钳都走它）：
+ *  - 锚点用保存的 spriteAnchor 合成 base 尺寸的参考 bounds，不用实时窗口
+ *    bounds，重复上报结果幂等；
+ *  - 最小维度裁剪：常态气泡（≤240 + 2 gutter = base.hostWidth）只写 y/height
+ *    （旧 applyBubbleHeight 被验证无 DWM 问题的路径）；仅当宽度真的需要超过
+ *    base 时才连带写 x/width；
+ *  - renderer 上报经 BUBBLE_FLUSH_MS 合流，目标 rect 与当前完全相同则跳过。
+ * 返回实际准予的额外高度。
  */
-async function applyBubbleHeight(desiredHeightPx: number): Promise<number> {
+async function applyBubbleBounds(
+  desiredWidthPx: number,
+  desiredHeightPx: number,
+): Promise<number> {
   if (!isPetWindow(petWindow)) return 0;
   if (!Number.isFinite(desiredHeightPx) || desiredHeightPx < 0) return bubbleExtraPx;
+  const closed = desiredHeightPx <= 0;
+  bubbleAppliedWidth = closed ? null : clampBubbleWidth(desiredWidthPx);
+  bubbleDesiredHeightPx = closed ? 0 : Math.ceil(desiredHeightPx);
+  return scheduleBubbleFlush();
+}
+
+function settleBubbleWaiters(granted: number): void {
+  const waiters = bubbleFlushWaiters;
+  bubbleFlushWaiters = [];
+  for (const resolve of waiters) resolve(granted);
+}
+
+/** 合流：leading 立即跑一次（赶首帧），trailing 在静默窗口后兜底收敛。 */
+function scheduleBubbleFlush(): Promise<number> {
+  const promise = new Promise<number>((resolve) => bubbleFlushWaiters.push(resolve));
+  if (bubbleFlushTimer === null && !bubbleCommitInFlight && isPetWindow(petWindow)) {
+    bubbleCommitInFlight = true;
+    void commitBubbleBounds()
+      .then((granted) => settleBubbleWaiters(granted))
+      .finally(() => { bubbleCommitInFlight = false; });
+  }
+  if (bubbleFlushTimer) clearTimeout(bubbleFlushTimer);
+  bubbleFlushTimer = setTimeout(() => {
+    bubbleFlushTimer = null;
+    if (!isPetWindow(petWindow)) {
+      settleBubbleWaiters(bubbleExtraPx);
+      return;
+    }
+    bubbleCommitInFlight = true;
+    void commitBubbleBounds()
+      .then((granted) => settleBubbleWaiters(granted))
+      .finally(() => { bubbleCommitInFlight = false; });
+  }, BUBBLE_FLUSH_MS);
+  return promise;
+}
+
+/** 立即冲刷合流队列（doSync 必须在 showInactive 前完成定位）。 */
+async function flushBubbleBoundsNow(): Promise<number> {
+  if (bubbleFlushTimer) {
+    clearTimeout(bubbleFlushTimer);
+    bubbleFlushTimer = null;
+  }
+  const granted = await commitBubbleBounds();
+  settleBubbleWaiters(granted);
+  return granted;
+}
+
+/**
+ * Windows DWM 兜底：分层透明窗在宽度（x/width）变化后，新扩出的区域可能保持
+ * 全透明（Chromium 表面正常、物理屏透明）。轻推一次 opacity 强制 layered
+ * window 重新合成；0.99 肉眼不可见。仅宽度维度变化时需要——旧的只改
+ * y/height 路径在 DWM 下一直正常。
+ */
+function forceLayeredWindowRepaint(target: BrowserWindow): void {
+  if (process.platform !== 'win32') return;
+  try {
+    target.setOpacity(0.99);
+    setTimeout(() => {
+      if (!target.isDestroyed()) target.setOpacity(1);
+    }, 16);
+  } catch {
+    // setOpacity 不可用时静默：物理屏验证会暴露问题。
+  }
+}
+
+/**
+ * 单一几何写入：以保存的 spriteAnchor 解析目标 rect，只把真正变化的维度写进
+ * setBounds，完全相同则跳过。返回 grantedHeightExtra。
+ */
+async function commitBubbleBounds(): Promise<number> {
+  const window = petWindow;
+  if (!isPetWindow(window)) {
+    spriteAnchor = null;
+    return bubbleExtraPx;
+  }
   const pref = await loadDesktopPetPref();
-  const { popoverTop } = getDesktopPetLayout(pref.scale);
-  const baseMaxBubbleHeight = popoverTop - PET_BUBBLE_GAP_PX;
-  const wantedExtra = Math.max(0, Math.ceil(desiredHeightPx - baseMaxBubbleHeight));
-  const delta = wantedExtra - bubbleExtraPx;
-  if (delta !== 0 && isPetWindow(petWindow)) {
-    const bounds = petWindow.getBounds();
-    const { workArea } = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
-    // 向上扩张受屏幕顶边约束（至少留 PET_BUBBLE_TOP_MARGIN_PX）；收缩（delta<0）总是允许。
-    const headroom = Math.max(0, bounds.y - workArea.y - PET_BUBBLE_TOP_MARGIN_PX);
-    const applied = delta > 0 ? Math.min(delta, headroom) : delta;
-    if (applied !== 0) {
-      petWindow.setBounds({
-        x: bounds.x,
-        y: bounds.y - applied,
-        width: bounds.width,
-        height: bounds.height + applied,
-      });
-      bubbleExtraPx += applied;
-      // 拖拽以 cursor-窗口原点偏移跟随；窗口上移后同步修正，避免 sprite 跳变。
-      if (dragOrigin) dragOrigin.offsetY += applied;
+  if (!isPetWindow(window)) return bubbleExtraPx;
+  const layout = getDesktopPetLayout(pref.scale);
+  const current = window.getBounds();
+  if (!spriteAnchor) {
+    spriteAnchor = { cx: current.x + current.width / 2, bottom: current.y + current.height };
+  }
+  // 用锚点 + base 尺寸合成参考 bounds：同样的锚点/输入永远解析出同样的 rect。
+  const anchorBounds = {
+    x: Math.round(spriteAnchor.cx - layout.hostWidth / 2),
+    y: Math.round(spriteAnchor.bottom - layout.hostHeight),
+    width: layout.hostWidth,
+    height: layout.hostHeight,
+  };
+  const { workArea } = screen.getDisplayNearestPoint({
+    x: anchorBounds.x,
+    y: anchorBounds.y,
+  });
+  const resolved = resolveBubbleWindowBounds({
+    base: { width: layout.hostWidth, height: layout.hostHeight },
+    workArea,
+    bounds: anchorBounds,
+    bubbleWidth: bubbleAppliedWidth,
+    bubbleHeightPx: bubbleDesiredHeightPx,
+    popoverTop: layout.popoverTop,
+    gapPx: PET_BUBBLE_GAP_PX,
+    screenMarginPx: PET_BUBBLE_SCREEN_MARGIN_PX,
+  });
+
+  // 最小维度裁剪：未变化的维度绝不写进 setBounds。
+  const next = { x: current.x, y: current.y, width: current.width, height: current.height };
+  let widthDimChanged = false;
+  if (resolved.width !== current.width) {
+    // 宽度只在内容真的超过 base 主机位时才变（resolve 内取 max(base, …)）；
+    // x 围绕同一中心线对称变化，必须与 width 同批写入。
+    next.width = resolved.width;
+    next.x = resolved.x;
+    widthDimChanged = true;
+  }
+  if (resolved.height !== current.height) {
+    next.height = resolved.height;
+    next.y = resolved.y;
+  }
+  const changed = next.x !== current.x
+    || next.y !== current.y
+    || next.width !== current.width
+    || next.height !== current.height;
+  if (changed) {
+    suppressAnchorCapture = true;
+    try {
+      window.setBounds(next);
+    } finally {
+      // Windows 上 move 事件经消息泵异步派发，保留一小段抑制窗口。
+      setTimeout(() => { suppressAnchorCapture = false; }, 200);
+    }
+    if (widthDimChanged) forceLayeredWindowRepaint(window);
+    // 拖拽以 cursor-窗口原点偏移跟随；窗口移动后同步修正，避免 sprite 跳变。
+    if (dragOrigin) {
+      dragOrigin.offsetX -= next.x - current.x;
+      dragOrigin.offsetY -= next.y - current.y;
     }
   }
+  bubbleExtraPx = resolved.grantedHeightExtra;
   return bubbleExtraPx;
 }
 
 function clampPosition(position: DesktopPetPosition, scale: number): DesktopPetPosition {
   const display = screen.getDisplayNearestPoint(position);
   const { workArea } = display;
-  const { width, height } = petDimensions(scale);
+  const base = petDimensions(scale);
+  // 气泡展开时窗口可能比 base 更宽/更高；自动移动按当前实际占位夹取，
+  // 避免扩出的部分被推出屏幕。窗口尚未创建（首次定位）时退回 base。
+  const width = isPetWindow(petWindow) ? petWindow.getBounds().width : base.width;
+  const height = isPetWindow(petWindow) ? petWindow.getBounds().height : base.height;
   return {
     x: Math.round(Math.min(Math.max(position.x, workArea.x), workArea.x + workArea.width - width)),
     y: Math.round(Math.min(Math.max(position.y, workArea.y), workArea.y + workArea.height - height)),
@@ -494,6 +652,12 @@ function onPetMoved(): void {
   }
   lastBounds = next;
   latestPosition = next;
+  // sprite 恒为窗口居中 + 底边对齐，真实位移（拖拽/自动散步/OS）刷新锚点；
+  // 气泡几何驱动的 move 事件被抑制，锚点保持不漂。
+  if (!suppressAnchorCapture && isPetWindow(petWindow)) {
+    const b = petWindow.getBounds();
+    spriteAnchor = { cx: b.x + b.width / 2, bottom: b.y + b.height };
+  }
   if (!dragOrigin && !autoMoveRun) schedulePositionSave();
 }
 
@@ -572,6 +736,7 @@ async function ensurePetWindow(): Promise<BrowserWindow> {
   const { width, height } = petDimensions(pref.scale);
   latestPosition = position;
   lastBounds = position;
+  spriteAnchor = { cx: position.x + width / 2, bottom: position.y + height };
   petWindow = new BrowserWindow({
     width,
     height,
@@ -614,6 +779,15 @@ async function ensurePetWindow(): Promise<BrowserWindow> {
   window.on('closed', () => {
     stopAutoMove();
     bubbleExtraPx = 0;
+    bubbleAppliedWidth = null;
+    bubbleDesiredHeightPx = 0;
+    spriteAnchor = null;
+    suppressAnchorCapture = false;
+    if (bubbleFlushTimer) {
+      clearTimeout(bubbleFlushTimer);
+      bubbleFlushTimer = null;
+    }
+    settleBubbleWaiters(0);
     // Only clear the ref if it still points at this window; a newer window
     // created by a queued toggle must not be nulled out by the old one.
     if (petWindow === window) {
@@ -656,26 +830,16 @@ async function doSyncDesktopPet(): Promise<void> {
   }
   const window = await ensurePetWindow();
   if (window.isDestroyed()) return;
-  const base = petDimensions(pref.scale);
-  // 合并气泡动态扩出的高度在 scale/pref 同步后仍然有效：保持窗口底边
-  // （sprite 底部）不动，把高度差折算进 y（见下方 y 补偿）。扩高不设固定
-  // px 上限，只按当前所在显示器顶边可用空间钳制；不足部分 renderer 内部滚动兜底。
-  const bounds0 = window.getBounds();
-  const display = screen.getDisplayNearestPoint({ x: bounds0.x, y: bounds0.y });
-  // 底边（sprite 底部）固定，新顶边 = 当前底边 - (base.height + extra)，
-  // 据此反推顶边 ≥ workArea.y + 8px 时最多能保留多少扩高。
-  const bottom = bounds0.y + bounds0.height;
-  const headroom = Math.max(0, bottom - base.height - display.workArea.y - PET_BUBBLE_TOP_MARGIN_PX);
-  const extra = Math.min(Math.max(0, bubbleExtraPx), headroom);
-  const width = base.width;
-  const height = base.height + extra;
-  const bounds = window.getBounds();
-  const position = clampPosition({
-    x: bounds.x - Math.max(0, Math.round((width - bounds.width) / 2)),
-    y: bounds.y + (bounds.height - height),
-  }, pref.scale);
-  window.setBounds({ x: position.x, y: position.y, width, height });
-  latestPosition = position;
+  // 合并气泡动态扩出的宽/高在 scale/pref 同步后经同一条几何入口重算：以保存
+  // 的 spriteAnchor 为锚（新窗口已用 pref.position 初始化锚点），按当前所在
+  // 显示器 workArea 钳制；高度不足部分 renderer 内部滚动兜底。
+  const granted = await flushBubbleBoundsNow();
+  bubbleExtraPx = granted;
+  if (!window.isDestroyed()) {
+    const [x, y] = window.getPosition();
+    latestPosition = { x, y };
+    lastBounds = { x, y };
+  }
   sendPreferences(pref);
   window.setIgnoreMouseEvents(false);
   window.showInactive();
@@ -737,13 +901,15 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
     return getDesktopPetSpritesheetUrl(id);
   });
 
-  ipcMain.removeHandler(PET_SET_BUBBLE_HEIGHT_CHANNEL);
-  ipcMain.handle(PET_SET_BUBBLE_HEIGHT_CHANNEL, (event, desiredHeightPx: unknown) => {
+  ipcMain.removeHandler(PET_SET_BUBBLE_BOUNDS_CHANNEL);
+  ipcMain.handle(PET_SET_BUBBLE_BOUNDS_CHANNEL, (event, size: unknown) => {
     if (!isPetWindow(petWindow) || event.sender !== petWindow.webContents) {
       return Promise.resolve(0);
     }
-    if (typeof desiredHeightPx !== 'number') return Promise.resolve(bubbleExtraPx);
-    return applyBubbleHeight(desiredHeightPx);
+    if (!size || typeof size !== 'object') return Promise.resolve(bubbleExtraPx);
+    const { width, height } = size as { width?: unknown; height?: unknown };
+    if (typeof height !== 'number') return Promise.resolve(bubbleExtraPx);
+    return applyBubbleBounds(typeof width === 'number' ? width : 0, height);
   });
 
   ipcMain.removeHandler(PET_SET_ENABLED_CHANNEL);
@@ -881,6 +1047,11 @@ export function registerDesktopPetIpc(actions: DesktopPetHostActions): void {
     tickDrag();
     dragOrigin = null;
     sendAnimation('idle');
+    // 拖拽可能跨过显示器/贴到顶边：按新 workArea 经同一合流入口重新钳制气泡
+    // 宽高（renderer 内容尺寸未变，直接用最近一次上报值；锚点已随拖拽更新）。
+    if (bubbleAppliedWidth !== null && bubbleDesiredHeightPx > 0) {
+      void scheduleBubbleFlush();
+    }
     schedulePositionSave(0);
     void scheduleAutoMove();
   });
@@ -900,7 +1071,7 @@ export function unregisterDesktopPetIpc(): void {
   ipcMain.removeHandler(PET_INSTALL_REMOTE_CHANNEL);
   ipcMain.removeHandler(PET_OPEN_DIRECTORY_CHANNEL);
   ipcMain.removeHandler(PET_SPRITESHEET_URL_CHANNEL);
-  ipcMain.removeHandler(PET_SET_BUBBLE_HEIGHT_CHANNEL);
+  ipcMain.removeHandler(PET_SET_BUBBLE_BOUNDS_CHANNEL);
   ipcMain.removeAllListeners(PET_SET_MOUSE_IGNORE_CHANNEL);
   ipcMain.removeAllListeners(PET_BEGIN_DRAG_CHANNEL);
   ipcMain.removeAllListeners(PET_END_DRAG_CHANNEL);
@@ -910,6 +1081,15 @@ export function disposeDesktopPet(): void {
   stopDragTicker();
   stopAutoMove();
   bubbleExtraPx = 0;
+  bubbleAppliedWidth = null;
+  bubbleDesiredHeightPx = 0;
+  spriteAnchor = null;
+  suppressAnchorCapture = false;
+  if (bubbleFlushTimer) {
+    clearTimeout(bubbleFlushTimer);
+    bubbleFlushTimer = null;
+  }
+  settleBubbleWaiters(0);
   if (moveStopTimer) clearTimeout(moveStopTimer);
   moveStopTimer = null;
   if (positionSaveTimer) clearTimeout(positionSaveTimer);

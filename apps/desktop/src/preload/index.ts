@@ -94,7 +94,7 @@ const DESKTOP_PET_FETCH_REMOTE_CATALOG_CHANNEL = 'desktop-pet:fetch-remote-catal
 const DESKTOP_PET_INSTALL_REMOTE_CHANNEL = 'desktop-pet:install-remote';
 const DESKTOP_PET_OPEN_DIRECTORY_CHANNEL = 'desktop-pet:open-directory';
 const DESKTOP_PET_SPRITESHEET_URL_CHANNEL = 'desktop-pet:spritesheet-url';
-const DESKTOP_PET_SET_BUBBLE_HEIGHT_CHANNEL = 'desktop-pet:set-bubble-height';
+const DESKTOP_PET_SET_BUBBLE_BOUNDS_CHANNEL = 'desktop-pet:set-bubble-bounds';
 const SHARE_CARD_COPY_IMAGE_CHANNEL = 'share-card:copy-image';
 const CODEX_SUBSCRIPTION_GET_CHANNEL = 'codex-subscription:get';
 const CLAUDE_SUBSCRIPTION_GET_CHANNEL = 'claude-subscription:get';
@@ -316,12 +316,16 @@ const tudApi = {
   endDesktopPetDrag: () => ipcRenderer.send('desktop-pet:end-drag'),
 
   /**
-   * Reports the merged bubble's rendered content height so main can grow the
-   * transparent host window upward. Resolves to the extra pixels actually
-   * granted (screen-top clamp); the renderer uses it as the max-height budget.
+   * Reports the merged bubble's rendered content size so main can grow the
+   * transparent host window upward (height) and symmetrically around the
+   * sprite centerline (width). The renderer bubble is width:max-content with
+   * a [min,max] clamp, so measurement never feeds back into the reported
+   * width. Resolves to the extra height pixels actually granted (screen-top
+   * clamp); the renderer uses it as the max-height scroll budget. Report
+   * {0,0} when the bubble closes so the footprint collapses back to base.
    */
-  setDesktopPetBubbleHeight: (heightPx: number): Promise<number> =>
-    ipcRenderer.invoke(DESKTOP_PET_SET_BUBBLE_HEIGHT_CHANNEL, heightPx),
+  setDesktopPetBubbleBounds: (size: { width: number; height: number }): Promise<number> =>
+    ipcRenderer.invoke(DESKTOP_PET_SET_BUBBLE_BOUNDS_CHANNEL, size),
 
   onDesktopPetAnimation: (callback: (animation: PetAnimation) => void) => {
     const listener = (_event: unknown, animation: PetAnimation) => {
