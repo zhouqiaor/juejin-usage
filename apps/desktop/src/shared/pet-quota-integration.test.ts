@@ -15,6 +15,7 @@ import {
   aggregateToQuotaWindows,
   arkSnapshotToQuotaWindows,
 } from './pet-quota-integration.js';
+import { resolvePetMood } from './pet-mood.js';
 
 function makeWindow(
   kind: PetQuotaWindow['kind'],
@@ -137,7 +138,7 @@ test('aggregateToQuotaWindows 展平多 provider，key 带区不碰撞，秒→�
   assert.equal(windows[1]?.resetsAt, null);
 });
 
-test('aggregateToMoodInput 默认只取 Ark section，其他 provider 被过滤', () => {
+test('aggregateToMoodInput 默认评估全部 provider section（不再只取 Ark）', () => {
   const input = aggregateToMoodInput(
     makeAggregate([
       makeSection('trae-cn', [makeWindow('other', 40, 1_800_000_000, 'basic')]),
@@ -147,9 +148,25 @@ test('aggregateToMoodInput 默认只取 Ark section，其他 provider 被过滤'
   );
   assert.equal(input.status, 'ready');
   assert.equal(input.stale, false);
+  // trae-cn 的 other 窗口被丢弃；ark/minimax 的速率窗口全部保留。
   assert.deepEqual(input.windows, [
     { provider: ARK_PROVIDER, id: 'five-hour', usedPercent: 92, resetsAt: null },
+    { provider: 'minimax', id: 'weekly', usedPercent: 30, resetsAt: null },
   ]);
+});
+
+test('aggregateToMoodInput 显式 providers 白名单仍只取名单内的家', () => {
+  const aggregate = makeAggregate([
+    makeSection('ark', [makeWindow('five-hour', 92)]),
+    makeSection('minimax', [makeWindow('weekly', 30)]),
+    makeSection('codex', [makeWindow('five-hour', 10)]),
+  ]);
+  const onlyArk = aggregateToMoodInput(aggregate, [ARK_PROVIDER]);
+  assert.deepEqual(onlyArk.windows, [
+    { provider: ARK_PROVIDER, id: 'five-hour', usedPercent: 92, resetsAt: null },
+  ]);
+  const two = aggregateToMoodInput(aggregate, ['minimax', 'codex']);
+  assert.deepEqual(two.windows.map((w) => w.provider), ['minimax', 'codex']);
 });
 
 test('aggregateToMoodInput 丢弃 other 窗口，仅映射 5h/weekly/monthly', () => {
@@ -195,7 +212,7 @@ test('aggregateToMoodInput stale = 过滤后全部 section 皆 stale，有任一
   );
   assert.equal(mixed.stale, false);
 
-  // 被过滤掉的 provider 不计入 stale：只有 Ark 时，别家 stale 与我无关。
+  // 默认评估全部家：任一 fresh 即 false，别家 stale 不会拖垮情绪。
   const arkFreshOthersStale = aggregateToMoodInput(
     makeAggregate([
       makeSection('ark', [makeWindow('five-hour', 9)], false),
@@ -203,6 +220,141 @@ test('aggregateToMoodInput stale = 过滤后全部 section 皆 stale，有任一
     ]),
   );
   assert.equal(arkFreshOthersStale.stale, false);
+
+  // 反向同样成立：Ark stale 时，别家 fresh 仍可驱动情绪，不误报 unknown。
+  const arkStaleOthersFresh = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [makeWindow('five-hour', 9)], true),
+      makeSection('minimax', [makeWindow('weekly', 80)], false),
+    ]),
+  );
+  assert.equal(arkStaleOthersFresh.stale, false);
+});
+
+test('aggregateToMoodInput + resolvePetMood：Ark 健康但别家告急，情绪取别家', () => {
+  const input = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [makeWindow('five-hour', 12)]),
+      makeSection('minimax', [makeWindow('weekly', 95)]),
+    ]),
+  );
+  const result = resolvePetMood({ ...input, nowSec: 1_800_000_000 });
+  assert.equal(result.mood, 'alerting');
+  assert.equal(result.activeProvider, 'minimax');
+  assert.equal(result.activeWindow, 'weekly');
+});
+
+test('aggregateToMoodInput + resolvePetMood：全部 section stale → unknown；全未配置（全 disabled）→ unknown', () => {
+  const allStale = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [makeWindow('five-hour', 99)], true),
+      makeSection('minimax', [makeWindow('weekly', 98)], true),
+    ]),
+  );
+  const staleResult = resolvePetMood({ ...allStale, nowSec: 1_800_000_000 });
+  assert.equal(staleResult.mood, 'unknown');
+  assert.equal(staleResult.activeProvider, null);
+
+  // 未 ready/被禁用的家在归一化层不产生 section（见 pet-quota-providers），
+  // 故「全 disabled」在此即空 aggregate。
+  const noneConfigured = aggregateToMoodInput(makeAggregate([]));
+  const noneResult = resolvePetMood({ ...noneConfigured, nowSec: 1_800_000_000 });
+  assert.equal(noneResult.mood, 'unknown');
+  assert.equal(noneResult.activeProvider, null);
+});
+
+test('aggregateToMoodInput：仅退化（other）窗口的 token/credits 型家不参与情绪', () => {
+  // cursor/qoder/deepseek/workbuddy 一类只有 other 窗口：与 Ark 混合时不产生
+  // mood 窗口，情绪仍由 Ark 决定。
+  const mixed = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('cursor', [
+        makeWindow('other', 97, null, 'plan'),
+        makeWindow('other', 80, null, 'cursor-models'),
+      ]),
+      makeSection('ark', [makeWindow('five-hour', 65)]),
+    ]),
+  );
+  assert.deepEqual(mixed.windows, [
+    { provider: ARK_PROVIDER, id: 'five-hour', usedPercent: 65, resetsAt: null },
+  ]);
+  const mood = resolvePetMood({ ...mixed, nowSec: 1_800_000_000 });
+  assert.equal(mood.mood, 'loaded');
+  assert.equal(mood.activeProvider, ARK_PROVIDER);
+
+  // 全部家都只有退化窗口：status ready 但无合法速率窗口，pet-mood 判 unknown。
+  const onlyDegenerate = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('cursor', [makeWindow('other', 99, null, 'plan')]),
+      makeSection('qoder', [makeWindow('other', 98, null, 'credits')]),
+    ]),
+  );
+  assert.equal(onlyDegenerate.status, 'ready');
+  assert.deepEqual(onlyDegenerate.windows, []);
+  const degenerateResult = resolvePetMood({ ...onlyDegenerate, nowSec: 1_800_000_000 });
+  assert.equal(degenerateResult.mood, 'unknown');
+});
+
+test('aggregateToMoodInput：只有 Ark 一家时行为与旧版一致（回归）', () => {
+  const input = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [
+        makeWindow('five-hour', 92),
+        makeWindow('weekly', 55),
+        makeWindow('monthly', 12),
+        makeWindow('other', 77, null, 'plan'),
+      ]),
+    ]),
+  );
+  assert.deepEqual(input, {
+    status: 'ready',
+    stale: false,
+    windows: [
+      { provider: ARK_PROVIDER, id: 'five-hour', usedPercent: 92, resetsAt: null },
+      { provider: ARK_PROVIDER, id: 'weekly', usedPercent: 55, resetsAt: null },
+      { provider: ARK_PROVIDER, id: 'monthly', usedPercent: 12, resetsAt: null },
+    ],
+  });
+  const result = resolvePetMood({ ...input, nowSec: 1_800_000_000 });
+  assert.equal(result.mood, 'alerting');
+  assert.equal(result.activeProvider, ARK_PROVIDER);
+  assert.equal(result.activeWindow, 'five-hour');
+});
+
+test('aggregateToMoodInput + resolvePetMood：跨家并列决胜——百分比优先，同值短窗口优先，全并列按 section 顺序', () => {
+  // 百分比差距优先：月窗口 95% 压过 5h 60%，跨家亦然。
+  const percentFirst = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [makeWindow('five-hour', 60)]),
+      makeSection('minimax', [makeWindow('monthly', 95)]),
+    ]),
+  );
+  const r1 = resolvePetMood({ ...percentFirst, nowSec: 1_800_000_000 });
+  assert.equal(r1.activeProvider, 'minimax');
+  assert.equal(r1.activeWindow, 'monthly');
+
+  // 同百分比：别家 5h 压过 Ark weekly。
+  const windowRank = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [makeWindow('weekly', 85)]),
+      makeSection('codex', [makeWindow('five-hour', 85)]),
+    ]),
+  );
+  const r2 = resolvePetMood({ ...windowRank, nowSec: 1_800_000_000 });
+  assert.equal(r2.activeProvider, 'codex');
+  assert.equal(r2.activeWindow, 'five-hour');
+
+  // 完全并列（同百分比同窗口）：aggregate.sections 顺序在前的家胜出
+  //（buildPetQuotaAggregate 按 primary 降序稳定排序，顺序确定）。
+  const fullTie = aggregateToMoodInput(
+    makeAggregate([
+      makeSection('ark', [makeWindow('five-hour', 85)]),
+      makeSection('codex', [makeWindow('five-hour', 85)]),
+    ]),
+  );
+  const r3 = resolvePetMood({ ...fullTie, nowSec: 1_800_000_000 });
+  assert.equal(r3.activeProvider, ARK_PROVIDER);
+  assert.equal(r3.activeWindow, 'five-hour');
 });
 
 test('aggregateToMoodInput 多窗口 id 取 kind，resetsAt 保持 epoch 秒不换算', () => {

@@ -8,7 +8,7 @@ import type { PetMoodInput } from './pet-mood.js';
 import type { PetQuotaAggregate } from './pet-quota-providers.js';
 import type { QuotaWindow } from './pet-quota-alert.js';
 
-/** MVP 只接 Ark；多 provider 时 evaluateQuotaAlerts 的 key 以此区分。 */
+/** Ark 快照映射用的 provider key；多 provider 时 evaluateQuotaAlerts 的 key 也以此区分。 */
 export const ARK_PROVIDER = 'ark';
 
 /**
@@ -56,25 +56,42 @@ export function aggregateToQuotaWindows(aggregate: PetQuotaAggregate): QuotaWind
 }
 
 /**
- * 多 provider 聚合快照 → pet-mood 情绪层输入（M0 只取 Ark）。
+ * 多 provider 聚合快照 → pet-mood 情绪层输入（默认对 aggregate 中**全部**
+ * section 评估；Ark 不再是唯一情绪数据源）。
  *
  * 与 aggregateToQuotaWindows 的关键差异（不可互喂，见 pet-m0 接线方案 §1.2）：
  * - resetsAt 保持 epoch **秒**（直接读 resetsAtSec），pet-mood 用 nowSec，
  *   不做 ×1000/÷1000 往返；
- * - 丢弃 'other' 窗口（cursor plan / qoder Credits 等），情绪只认 5h/weekly/monthly；
- * - PetQuotaAggregate 没有全局 status/stale，这里合成：过滤后无 section
- *   （Ark 未配置/token-only 账号整体被归一化层跳过）→ 'not-configured'
- *   （pet-mood 据此判 unknown，「没数据」绝不演成「耗尽」）；stale 取过滤后
- *   全部 section 皆 stale——有任一 fresh 即不报 unknown。
+ * - 丢弃 'other' 窗口（cursor Plan 桶 / qoder Credits / deepseek 余额等），
+ *   情绪只认 5h/weekly/monthly——只有退化窗口的家自然不参与情绪决胜；
+ * - PetQuotaAggregate 没有全局 status/stale，这里合成：
+ *   · 选中 section 为 0（无任何已配置且有数据的家，或显式 providers 白名单
+ *     过滤光——含未配置/token-only 账号：token-only 账号在归一化层就不生成
+ *     section，见 pet-quota-providers.makeSection）→ 'not-configured'
+ *     （pet-mood 据此判 unknown，「没数据」绝不演成「耗尽」）；
+ *   · stale 取选中 section **全部**皆 stale——有任一 fresh 即不报 unknown，
+ *     新鲜别家的窗口照常参与情绪决胜。
+ *
+ * 跨家决胜（百分比优先；并列时窗口 5h > weekly > monthly；再并列按输入
+ * 顺序）不在此重复实现：本函数只按 aggregate.sections 原顺序展平窗口，
+ * 决胜统一由 resolvePetMood 的 tighterOf 完成（见 pet-mood.ts）。sections
+ * 在 buildPetQuotaAggregate 中按 primary 已用百分比降序稳定排序，故完全
+ * 并列时驱动情绪的 provider 也是确定的。
+ *
+ * providers 显式参数仅供测试/未来白名单使用：
+ * - 省略（undefined）→ 评估全部 section（生产默认）；
+ * - 传数组（含 []）→ 只评估名单内的家，[] 等价于无 section（not-configured）。
  *
  * 返回全新对象/数组（窗口也是新映射出来的）：QA 临时改百分比或渲染层任何
  * 误改都不会回灌 aggregate、污染气泡展示。
  */
 export function aggregateToMoodInput(
   aggregate: PetQuotaAggregate,
-  providers: readonly string[] = [ARK_PROVIDER],
+  providers?: readonly string[],
 ): Pick<PetMoodInput, 'windows' | 'status' | 'stale'> {
-  const sections = aggregate.sections.filter((section) => providers.includes(section.provider));
+  const sections = providers
+    ? aggregate.sections.filter((section) => providers.includes(section.provider))
+    : aggregate.sections;
   return {
     status: sections.length > 0 ? 'ready' : 'not-configured',
     stale: sections.length > 0 && sections.every((section) => section.stale),
