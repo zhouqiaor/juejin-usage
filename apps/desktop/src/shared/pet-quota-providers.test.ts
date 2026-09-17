@@ -757,19 +757,50 @@ test('projectSecondaryRowsFromWindows: 退化窗口家（Cursor 模型桶）原�
 });
 
 test('projectSecondaryRowsFromWindows: 时刻三档（HH:mm / MM-dd / YY-MM-dd）+ null 不渲染', () => {
+  // 时刻三档分别在三个独立小用例里跑（slice(1,3) 至多只取 2 条，单
+  // fixture 无法同时覆盖 HH:mm / MM-dd / YY-MM-dd 三档形态而不互相
+  // 截断，故拆成三组小输入 + 一组 null 入参）。
   const nowSec = gmt8Sec(2026, 9, 17, 14, 20);
-  const rows = projectSecondaryRowsFromWindows([
-    win('five-hour', '5h', 'five-hour', 90, nowSec + HOUR), // primary，5h（占位即可）
-    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 17, 16, 35)),  // 同天 HH:mm
-    win('monthly', '30d', 'monthly', 5, gmt8Sec(2026, 9, 18, 0, 0)),  // 跨天 MM-dd
-    win('yearly', '1y', 'other', 10, gmt8Sec(2027, 1, 1, 0, 30)),     // 跨年 YY-MM-dd
+
+  // 同天 → HH:mm
+  const sameDay = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 17, 16, 35)),
   ], nowSec);
-  assert.equal(rows.length, 3);
-  assert.deepEqual(rows.map((r) => r.resetShort), ['16:35', '09-18', '27-01-01']);
-  // resetTitle 中文形态：今天 / 今年跨天 / 跨年。
-  assert.equal(rows[0]?.resetTitle, '7d 窗口 今天 16:35 重置');
-  assert.equal(rows[1]?.resetTitle, '30d 窗口 09-18 00:00 重置');
-  assert.equal(rows[2]?.resetTitle, '1y 窗口 2027-01-01 00:30 重置');
+  assert.equal(sameDay.length, 1);
+  assert.equal(sameDay[0]?.resetShort, '16:35');
+  assert.equal(sameDay[0]?.resetTitle, '7d 窗口 今天 16:35 重置');
+
+  // 今年跨天 → MM-dd
+  const crossDay = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, null),
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 18, 0, 0)),
+  ], nowSec);
+  assert.equal(crossDay.length, 1);
+  assert.equal(crossDay[0]?.resetShort, '09-18');
+  assert.equal(crossDay[0]?.resetTitle, '7d 窗口 09-18 00:00 重置');
+
+  // 跨年 → YY-MM-dd
+  const crossYear = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, null),
+    win('yearly', '1y', 'other', 10, gmt8Sec(2027, 1, 1, 0, 30)),
+  ], nowSec);
+  assert.equal(crossYear.length, 1);
+  assert.equal(crossYear[0]?.resetShort, '27-01-01');
+  assert.equal(crossYear[0]?.resetTitle, '1y 窗口 2027-01-01 00:30 重置');
+
+  // 同一 nowSec 同时跑 4 窗口：slice(1, 3) 截断到 windows[1..2]，无视
+  // windows[3]（验证截断确实生效，4 家 primary 之外的窗口总数 ≥ 4 时
+  // 仍只展 2 条）。
+  const fourRows = projectSecondaryRowsFromWindows([
+    win('five-hour', '5h', 'five-hour', 90, gmt8Sec(2026, 9, 17, 16, 35)), // primary
+    win('weekly', '7d', 'weekly', 30, gmt8Sec(2026, 9, 17, 16, 35)),
+    win('monthly', '30d', 'monthly', 5, gmt8Sec(2026, 9, 18, 0, 0)),
+    win('yearly', '1y', 'other', 10, gmt8Sec(2027, 1, 1, 0, 30)), // 被截断
+  ], nowSec);
+  assert.equal(fourRows.length, 2);
+  assert.deepEqual(fourRows.map((r) => r.label), ['7d', '30d']);
+  assert.deepEqual(fourRows.map((r) => r.resetShort), ['16:35', '09-18']);
 
   // null 重置点：resetShort/resetTitle 均为 null（不挂「已过期」文案）。
   const nullRows = projectSecondaryRowsFromWindows([
