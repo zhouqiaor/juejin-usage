@@ -13,7 +13,6 @@ import {
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
 import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
-import { formatResetCountdown } from '../../shared/subscription-reset';
 import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 
 const INITIAL_SNAPSHOT: MiniMaxSubscriptionSnapshot = {
@@ -40,7 +39,6 @@ export function MiniMaxSubscriptionCard() {
   const [snapshot, setSnapshot] = useState<MiniMaxSubscriptionSnapshot>(INITIAL_SNAPSHOT);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const requestInFlight = useRef(false);
 
   const reload = useCallback(async (force = false) => {
@@ -49,7 +47,6 @@ export function MiniMaxSubscriptionCard() {
     try {
       const snap = await window.tud.getMiniMaxSubscription(force ? { forceRefresh: true } : undefined);
       setSnapshot((prev) => retainMiniMaxSnapshotOnEmpty(prev, snap));
-      setNow(Math.floor(Date.now() / 1000));
     } catch {
       setSnapshot((prev) => retainMiniMaxSnapshotOnEmpty(
         prev,
@@ -75,12 +72,6 @@ export function MiniMaxSubscriptionCard() {
     };
   }, [reload, enabled]);
 
-  // reset 倒计时每 30s 重算一次（避免 stale 文案）
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Math.floor(Date.now() / 1000)), 30_000);
-    return () => window.clearInterval(id);
-  }, []);
-
   // stale 角标点击：强制刷新；in-flight 时忽略（角标显「刷新中…」）
   const handleRetry = useCallback(() => {
     if (requestInFlight.current) return;
@@ -91,26 +82,29 @@ export function MiniMaxSubscriptionCard() {
   // 开关关闭：所有 hook（含下方倒计时组件/handleRetry）必须在此行之前调用。
   if (!enabled) return null;
 
-  const titleText = snapshot.region === 'mainland' ? 'Minimax CN' : snapshot.region === 'global' ? 'Minimax' : 'Minimax';
+  const brandTitle = snapshot.region === 'mainland' ? 'Minimax CN' : snapshot.region === 'global' ? 'Minimax' : 'Minimax';
+  // 标题：品牌短名 · 套餐档位（如「Minimax CN · general」），整串交给卡片 truncate；
+  // 全量同名放进 titleFull hover tooltip，避免窄托盘截断后丢档位信息。
+  const titleFull = snapshot.planLabel ? `${brandTitle} · ${snapshot.planLabel}` : brandTitle;
+  const titleText = titleFull;
 
   const rateLimited = snapshot.limits.some((l) => l.rateLimited);
-  const models = Array.from(new Set(snapshot.limits.map((l) => l.modelName).filter(Boolean) as string[]));
-  // 模型名/限流不进标题：标题只留品牌短名；副标题行 10px muted，全名进 title tooltip。
-  const subtitleParts = [
-    models.length > 0 ? models.join('/') : '',
-    rateLimited ? '限流' : '',
-  ].filter(Boolean);
-  const subtitle = subtitleParts.join(' · ');
+  // 模型名进 metric labelTitle（hover 可见），不再放 footer 也不进最大标题；
+  // 限流态用同一位置的尾部 chip 表达，与「档位/模型名不进最大标题」规则一致。
+  const subtitle = rateLimited ? '限流中' : '';
 
   const metrics = snapshot.limits.map((limit: MiniMaxRateLimitWindow, index) => {
-    const resetText = formatResetCountdown(limit.resetsAt, now);
     // MiniMax coding_plan/remains 只有百分比有信息量（count 恒为 0）：右值主显示
     // 剩余百分比（与其余 14 张订阅卡及进度条填充口径一致）；真实已用 count 仅在
     // usedCount/totalCount 均 >0 时降级进 tooltip（labelTitle 的「已用 x/y」）。
     const quotaText = miniMaxHasRealCount(limit)
       ? `${formatCount(limit.usedCount)}/${formatCount(limit.totalCount)}`
       : '';
-    const labelTitle = quotaText ? `已用 ${quotaText}` : undefined;
+    const extraBits = [
+      limit.modelName ? `模型：${limit.modelName}` : '',
+      quotaText ? `已用 ${quotaText}` : '',
+    ].filter(Boolean);
+    const labelTitle = extraBits.length > 0 ? extraBits.join(' · ') : undefined;
     const remainingPercent = Number.isFinite(limit.usedPercent)
       ? miniMaxRemainingPercent(limit.usedPercent)
       : 0;
@@ -120,10 +114,15 @@ export function MiniMaxSubscriptionCard() {
       label: limit.label,
       labelTitle,
       remainingPercent,
-      resetLabel: resetText ?? undefined,
       valueText: miniMaxRemainingPercentText(limit.usedPercent),
     };
   });
+
+  // 重置时间统一交给卡片右上角「重置时间」图标按钮渲染。
+  const resetWindows = snapshot.limits.map((limit) => ({
+    label: limit.label,
+    resetsAt: limit.resetsAt,
+  }));
 
   return (
     <SubscriptionUsageCard
@@ -134,14 +133,9 @@ export function MiniMaxSubscriptionCard() {
         fetchedAt: snapshot.fetchedAt,
         errorMessage: snapshot.message,
         title: titleText,
-        footer: subtitle ? (
-          <p
-            className="truncate text-[10px] leading-4 text-muted"
-            title={`模型：${models.join(', ')}${rateLimited ? '；当前限流' : ''}`}
-          >
-            {subtitle}
-          </p>
-        ) : undefined,
+        titleFull,
+        subtitle: subtitle || undefined,
+        resetWindows,
       }}
       loading={loading}
       onRetry={handleRetry}

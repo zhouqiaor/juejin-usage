@@ -5,8 +5,7 @@ import { SubscriptionUsageCard, type SubscriptionUsageCardData, } from './Subscr
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
 import { ArkTokenPacksBlock } from './ArkTokenPacksBlock';
 import { SUBSCRIPTION_REFRESH_EVENT } from './SubscriptionOverviewSection';
-import { arkPlanTitle, arkPlanSubtitle } from '../../shared/ark-subscription';
-import { formatResetCountdown } from '../../shared/subscription-reset';
+import { arkPlanFullTitle } from '../../shared/ark-subscription';
 import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 
 function arkRemaining(usedPercent: number): number {
@@ -53,41 +52,33 @@ export function ArkSubscriptionCard() {
             const order: Record<string, number> = { 'five-hour': 0, weekly: 1, monthly: 2 };
             return (order[a.id] ?? 99) - (order[b.id] ?? 99);
           });
-          const nowSec = Math.floor(Date.now() / 1000);
+          // 重置时间统一交给卡片右上角「重置时间」图标按钮渲染；这里只透传窗口数据。
+          const resetWindows = sorted.slice(0, 3).map((w) => ({
+            label: w.label,
+            resetsAt: w.resetsAt,
+          }));
           const metrics = sorted.slice(0, 3).map((w, idx) => ({
             color: idx === 0 ? '#f04142' : '#2b7eff',
             label: w.label,
             remainingPercent: arkRemaining(w.usedPercent),
-            resetLabel: formatResetCountdown(w.resetsAt, nowSec) ?? undefined,
           }));
           const showTokenBlock = snapshot.tokenPacks.length > 0 || Boolean(snapshot.tokenPacksError);
-          // 副标题：Agent 档位按官方英文名规范化（small→Small），与「Agent Plan ·」组合
-          const planSubtitle = arkPlanSubtitle(snapshot.planKind, snapshot.planLabel);
+          // 标题：planKind + 档位（如「火山方舟 Agent Plan · Medium」），整串交给卡片
+          // truncate；同名全量也放进 titleFull hover tooltip，窄托盘不丢档位信息。
+          const fullTitle = arkPlanFullTitle(snapshot.planKind, snapshot.planLabel);
           setData({
-            title: arkPlanTitle(snapshot.planKind), // '火山方舟 Agent Plan' / '火山方舟 Coding Plan' / '火山方舟'
+            title: fullTitle,
+            titleFull: fullTitle,
             icon: <SubscriptionBrandIcon brand="volcengine" />,
             metrics,
-            // planLabel 是套餐档位，作 10px 小字展示，不拼进标题撑宽；
-            // token-only 账号也靠 footer 保住卡片框架。
-            footer:
-              planSubtitle || showTokenBlock ? (
-                <>
-                  {planSubtitle ? (
-                    <p
-                      className="text-[10px] leading-4 text-muted"
-                      title={`套餐档位：${planSubtitle}`}
-                    >
-                      {planSubtitle}
-                    </p>
-                  ) : null}
-                  {showTokenBlock ? (
-                    <ArkTokenPacksBlock
-                      packs={snapshot.tokenPacks}
-                      errorText={snapshot.tokenPacksError}
-                    />
-                  ) : null}
-                </>
-              ) : undefined,
+            resetWindows,
+            // footer 只保留免费推理额度汇总块；档位名已进 title，token-only 账号也靠 footer 保住卡片框架。
+            footer: showTokenBlock ? (
+              <ArkTokenPacksBlock
+                packs={snapshot.tokenPacks}
+                errorText={snapshot.tokenPacksError}
+              />
+            ) : undefined,
             stale: snapshot.stale,
             fetchedAt: snapshot.fetchedAt,
             errorMessage: snapshot.message,

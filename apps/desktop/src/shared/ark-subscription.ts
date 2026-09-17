@@ -70,6 +70,20 @@ export function arkPlanTitle(kind: ArkPlanKind | null | undefined): string {
 }
 
 /**
+ * 卡片标题全名：「火山方舟 Agent Plan · Medium」/「火山方舟 Coding Plan · <label>」；
+ * planLabel 缺失或不可读时退化为 arkPlanTitle(kind)，不引入额外分隔符。
+ * 不做 truncate：窄托盘由调用方决定是否在 labelTitle tooltip 里展示全名。
+ */
+export function arkPlanFullTitle(
+  kind: ArkPlanKind | null | undefined,
+  raw: string | null | undefined,
+): string {
+  const base = arkPlanTitle(kind);
+  const label = normalizeArkPlanLabel(kind, raw);
+  return label ? `${base} · ${label}` : base;
+}
+
+/**
  * Agent Plan 官方档位白名单：GetAFPUsage 的 PlanType 为小写英文枚举
  * （Small ¥40/2万燃料值、Medium ¥200/10万、Large ¥500/25万、Max ¥1000/50万），
  * 显示官方英文名首字母大写，不翻译中文。
