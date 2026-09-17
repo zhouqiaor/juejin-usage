@@ -22,6 +22,13 @@ export interface MetricBarRowProps {
   valueText: ReactNode;
   /** 右值列宽类名（长复合值由调用方传更宽档位） */
   valueWidth?: string;
+  /**
+   * 零态基线：percent === 0 时在轨道起点保留一个同色浅淡圆点。
+   * 仅用于「已用」语义的行（如免费额度 usedPercent=0 = 一行未用），
+   * 以区分「有数据但用量为 0」与「无数据、整行不渲染」。
+   * 「剩余」语义（remainingPercent）不要开启：那里 0% 表示额度用尽，空轨道才是正确表达。
+   */
+  zeroBaseline?: boolean;
 }
 
 /**
@@ -36,7 +43,11 @@ export function MetricBarRow({
   ariaLabel,
   valueText,
   valueWidth = METRIC_BAR_DEFAULT_VALUE_WIDTH,
+  zeroBaseline = false,
 }: MetricBarRowProps) {
+  // Fill 的宽度由 heroui 以 inline width 控制；0% 时 inline minWidth 仍可生效（min-width 优先于 width），
+  // 配合 opacity 淡化为零态基线圆点。仅 zeroBaseline 且 percent === 0 时挂载，其余行渲染与此前逐字节一致。
+  const isZeroBaseline = zeroBaseline && percent === 0;
   return (
     <div className="flex min-w-0 items-center gap-3">
       <span
@@ -59,7 +70,13 @@ export function MetricBarRow({
         value={percent}
       >
         <ProgressBar.Track className="h-1.5 rounded-full bg-surface-secondary">
-          <ProgressBar.Fill className="rounded-full" style={{ backgroundColor: color }} />
+          <ProgressBar.Fill
+            className="rounded-full"
+            style={{
+              backgroundColor: color,
+              ...(isZeroBaseline ? { minWidth: 6, opacity: 0.32 } : null),
+            }}
+          />
         </ProgressBar.Track>
       </ProgressBar>
       <span

@@ -6,6 +6,7 @@ import {
 } from '../../shared/workbuddy-subscription';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: WorkBuddySubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -52,6 +53,8 @@ export function WorkBuddySubscriptionCard({ region, title, fetcher }: WorkBuddyS
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
   return (
     <SubscriptionUsageCard
       data={{
@@ -60,6 +63,7 @@ export function WorkBuddySubscriptionCard({ region, title, fetcher }: WorkBuddyS
           color: index === 0 && snapshot.limits.length > 1 ? '#7dcf00' : '#2b7eff',
           label: workBuddyLabel(region, limit.label),
           remainingPercent: workBuddyRemainingPercent(limit.usedPercent),
+          resetLabel: formatResetCountdown(limit.resetsAt, nowSec) ?? undefined,
         })),
         stale: snapshot.stale,
         title,

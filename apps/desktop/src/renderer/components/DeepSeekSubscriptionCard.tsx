@@ -53,6 +53,8 @@ export function DeepSeekSubscriptionCard() {
           valueText: balance.remaining === null ? '—' : `¥${balance.remaining.toFixed(2)}`,
         })),
         stale: snapshot.stale,
+        fetchedAt: snapshot.fetchedAt,
+        errorMessage: snapshot.message,
         title: 'DeepSeek',
       }}
       loading={loading}

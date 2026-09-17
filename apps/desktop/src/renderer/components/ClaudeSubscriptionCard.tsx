@@ -5,6 +5,7 @@ import {
 } from '../../shared/claude-subscription';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: ClaudeSubscriptionSnapshot = {
   status: 'authorization-required',
@@ -48,6 +49,8 @@ export function ClaudeSubscriptionCard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
   return (
     <SubscriptionUsageCard
       data={{
@@ -59,6 +62,7 @@ export function ClaudeSubscriptionCard() {
             remainingPercent: snapshot.fiveHour
               ? claudeRemainingPercent(snapshot.fiveHour.usedPercent)
               : null,
+            resetLabel: formatResetCountdown(snapshot.fiveHour?.resetsAt ?? null, nowSec) ?? undefined,
           },
           {
             color: '#2b7eff',
@@ -66,6 +70,7 @@ export function ClaudeSubscriptionCard() {
             remainingPercent: snapshot.sevenDay
               ? claudeRemainingPercent(snapshot.sevenDay.usedPercent)
               : null,
+            resetLabel: formatResetCountdown(snapshot.sevenDay?.resetsAt ?? null, nowSec) ?? undefined,
           },
         ],
         stale: snapshot.stale,

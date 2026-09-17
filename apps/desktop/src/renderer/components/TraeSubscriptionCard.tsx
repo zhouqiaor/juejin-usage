@@ -6,6 +6,7 @@ import {
 } from '../../shared/trae-subscription';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: TraeSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -52,6 +53,8 @@ export function TraeSubscriptionCard({ region, title, fetcher }: TraeSubscriptio
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
   return (
     <SubscriptionUsageCard
       data={{
@@ -60,6 +63,7 @@ export function TraeSubscriptionCard({ region, title, fetcher }: TraeSubscriptio
           color: ['#7dcf00', '#2b7eff', '#f59e0b'][index] ?? '#2b7eff',
           label: limit.label,
           remainingPercent: traeRemainingPercent(limit.usedPercent),
+          resetLabel: formatResetCountdown(limit.resetsAt, nowSec) ?? undefined,
         })),
         stale: snapshot.stale,
         title,

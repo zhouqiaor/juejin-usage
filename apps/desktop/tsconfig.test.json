@@ -13,6 +13,8 @@
     "types": ["node"]
   },
   "include": [
+    "src/shared/desktop-pet-layout.ts",
+    "src/shared/desktop-pet-layout.test.ts",
     "src/shared/pet-quota-alert.ts",
     "src/shared/pet-quota-alert.test.ts",
     "src/shared/pet-sync-feedback.ts",
@@ -95,6 +97,10 @@
     "src/shared/ark-credentials.ts",
     "src/shared/ark-credentials.test.ts",
     "src/shared/ark-error.ts",
-    "src/shared/ark-error.test.ts"
+    "src/shared/ark-error.test.ts",
+    "src/shared/subscription-reset.ts",
+    "src/shared/subscription-reset.test.ts",
+    "src/shared/freshness.ts",
+    "src/shared/freshness.test.ts"
   ]
 }

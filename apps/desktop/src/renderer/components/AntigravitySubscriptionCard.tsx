@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { antigravityRemainingPercent, type AntigravitySubscriptionSnapshot } from '../../shared/antigravity-subscription';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: AntigravitySubscriptionSnapshot = {
   status: 'temporarily-unavailable', planLabel: null, limits: [], fetchedAt: null, stale: false, message: null,
@@ -25,12 +26,14 @@ export function AntigravitySubscriptionCard() {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
+  const nowSec = Math.floor(Date.now() / 1000);
   return <SubscriptionUsageCard data={{
     icon: <SubscriptionBrandIcon brand="antigravity" />,
     metrics: snapshot.limits.map((limit, index) => ({
       color: index === 0 && snapshot.limits.length > 1 ? '#7dcf00' : '#2b7eff',
       label: geminiModelLabel(limit.label),
       remainingPercent: antigravityRemainingPercent(limit.usedPercent),
+      resetLabel: formatResetCountdown(limit.resetsAt, nowSec) ?? undefined,
     })),
     stale: snapshot.stale,
     title: 'Gemini',

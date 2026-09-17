@@ -5,6 +5,7 @@ import {
 } from '../../shared/codex-subscription';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: CodexSubscriptionSnapshot = {
   status: 'unavailable',
@@ -43,6 +44,8 @@ export function CodexSubscriptionCard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
   return (
     <SubscriptionUsageCard
       data={{
@@ -54,6 +57,7 @@ export function CodexSubscriptionCard() {
             remainingPercent: snapshot.fiveHour
               ? codexRemainingPercent(snapshot.fiveHour.usedPercent)
               : null,
+            resetLabel: formatResetCountdown(snapshot.fiveHour?.resetsAt ?? null, nowSec) ?? undefined,
           },
           {
             color: '#2b7eff',
@@ -61,6 +65,7 @@ export function CodexSubscriptionCard() {
             remainingPercent: snapshot.weekly
               ? codexRemainingPercent(snapshot.weekly.usedPercent)
               : null,
+            resetLabel: formatResetCountdown(snapshot.weekly?.resetsAt ?? null, nowSec) ?? undefined,
           },
         ],
         title: 'Codex',

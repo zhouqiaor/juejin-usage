@@ -5,6 +5,7 @@ import {
 } from '../../shared/zcode-subscription';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: ZcodeSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -41,6 +42,8 @@ export function ZcodeSubscriptionCard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
   return (
     <SubscriptionUsageCard
       data={{
@@ -51,6 +54,7 @@ export function ZcodeSubscriptionCard() {
             color: index === 0 && all.length > 1 ? '#7dcf00' : '#2b7eff',
             label: limit.label,
             remainingPercent: zcodeRemainingPercent(limit.usedPercent),
+            resetLabel: formatResetCountdown(limit.resetsAt, nowSec) ?? undefined,
           })),
         stale: false,
         title: 'ZCode',

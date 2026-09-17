@@ -5,6 +5,8 @@ import {
 } from '../../shared/cursor-subscription';
 import { SubscriptionUsageCard, type SubscriptionUsageMetric } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
+import { useNowTick } from '../lib/useNowTick';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: CursorSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -46,26 +48,36 @@ export function CursorSubscriptionCard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  // 倒计时随 30s tick 重算；billingCycleEnd 缺失/过期时 formatResetCountdown 返回 null 不渲染
+  const nowSec = Math.floor(useNowTick() / 1000);
+  const resetFor = (window: { resetsAt: number | null } | null): string | undefined =>
+    window ? formatResetCountdown(window.resetsAt, nowSec) ?? undefined : undefined;
+
   const metrics: SubscriptionUsageMetric[] = snapshot.plan
     ? [{
         color: '#2b7eff',
         label: 'Plan',
         remainingPercent: cursorRemainingPercent(snapshot.plan.usedPercent),
+        resetLabel: resetFor(snapshot.plan),
       }]
     : [
         {
           color: '#7dcf00',
-          label: 'Cursor',
+          label: '套餐模型',
+          labelTitle: 'cursor-auto 套餐内模型：包含在订阅套餐中的模型用量',
           remainingPercent: snapshot.cursorModels
             ? cursorRemainingPercent(snapshot.cursorModels.usedPercent)
             : null,
+          resetLabel: resetFor(snapshot.cursorModels),
         },
         {
           color: '#2b7eff',
-          label: 'Other',
+          label: 'API 模型',
+          labelTitle: '其他模型按 API 用量计费（非套餐内模型池）',
           remainingPercent: snapshot.otherModels
             ? cursorRemainingPercent(snapshot.otherModels.usedPercent)
             : null,
+          resetLabel: resetFor(snapshot.otherModels),
         },
       ];
 
@@ -75,6 +87,8 @@ export function CursorSubscriptionCard() {
         icon: <SubscriptionBrandIcon brand="cursor" />,
         metrics,
         stale: snapshot.stale,
+        fetchedAt: snapshot.fetchedAt,
+        errorMessage: snapshot.message,
         title: 'Cursor',
       }}
       loading={loading}

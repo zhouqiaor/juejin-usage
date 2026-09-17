@@ -5,6 +5,7 @@ import {
 } from '../../shared/kimi-subscription';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
 import { SubscriptionUsageCard } from './SubscriptionUsageCard';
+import { formatResetCountdown } from '../../shared/subscription-reset';
 
 const INITIAL_SNAPSHOT: KimiSubscriptionSnapshot = {
   status: 'temporarily-unavailable',
@@ -41,6 +42,8 @@ export function KimiSubscriptionCard() {
     return () => window.removeEventListener('focus', onFocus);
   }, [reload]);
 
+  const nowSec = Math.floor(Date.now() / 1000);
+
   return (
     <SubscriptionUsageCard
       data={{
@@ -49,6 +52,7 @@ export function KimiSubscriptionCard() {
           color: index === 0 && snapshot.limits.length > 1 ? '#7dcf00' : '#2b7eff',
           label: limit.label,
           remainingPercent: kimiRemainingPercent(limit.usedPercent),
+          resetLabel: formatResetCountdown(limit.resetsAt, nowSec) ?? undefined,
         })),
         stale: snapshot.stale,
         title: 'Kimi Code',

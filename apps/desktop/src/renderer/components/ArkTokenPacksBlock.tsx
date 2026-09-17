@@ -40,6 +40,8 @@ function PackRow({ pack }: { pack: ArkTokenPack }) {
         </TokenValueText>
       )}
       valueWidth={TOKEN_VALUE_WIDTH}
+      // 已用语义：0% 已用时轨道保留浅蓝零态圆点，区别于「无数据不渲染该行」
+      zeroBaseline
     />
   );
 }
@@ -61,6 +63,8 @@ function SummaryRow({ summary }: { summary: ArkTokenPacksSummary }) {
         </TokenValueText>
       )}
       valueWidth={TOKEN_VALUE_WIDTH}
+      // 汇总同为已用语义：全部模型 0% 已用时同样给零态指示
+      zeroBaseline
     />
   );
 }
