@@ -127,3 +127,33 @@ export function formatResetCountdown(
 ): string | null {
   return formatResetCountdownZh(resetsAtSec, nowSec);
 }
+
+export interface ResetTooltipWindow {
+  /** 5h / 7d / 30d 这类短窗口标签，最终渲染为「`5h · …`」行首。 */
+  label: string;
+  /** 窗口重置 epoch 秒；同 formatResetCountdown 的合法规则（null/0/过期 → 跳过该行）。 */
+  resetsAt: number | null;
+}
+
+/**
+ * 把一组窗口拼成「重置时间」图标按钮的 tooltip 多行文本：
+ *   `5h · 今天 HH:mm 重置`
+ *   `7d · MM-dd 重置`
+ *   `30d · MM-dd 重置`
+ * - 用短形态（formatResetCountdownShort）+「 重置」后缀，今日只显 HH:mm，
+ *   跨日只显 MM-dd，不挤 430px 宽托盘；
+ * - 任一窗口 resetsAt 无效/已过：单独跳过该行，剩余行仍渲染；
+ * - 所有窗口都无效 → 返回 null（卡片据此隐藏整个图标按钮）。
+ */
+export function buildResetTooltipText(
+  windows: ReadonlyArray<ResetTooltipWindow>,
+  nowSec: number,
+): string | null {
+  const lines: string[] = [];
+  for (const w of windows) {
+    const short = formatResetCountdownShort(w.resetsAt, nowSec);
+    if (!short) continue;
+    lines.push(`${w.label} · ${short} 重置`);
+  }
+  return lines.length > 0 ? lines.join('\n') : null;
+}
