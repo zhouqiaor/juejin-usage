@@ -38,6 +38,7 @@ import type { DesktopPetDefinition } from '../../shared/desktop-pet-catalog';
 import { AboutContent } from '@/components/AboutContent';
 import { JuejinLoginConsentModal } from '@/components/JuejinLoginConsentModal';
 import { PetSelectPreview } from '@/components/PetSelectPreview';
+import { PhoneBridgeSettings } from '@/components/PhoneBridgeSettings';
 import { StatusBanner } from '@/components/StatusBanner';
 import { SubscriptionKeysSettings } from '@/components/SubscriptionKeysSettings';
 
@@ -53,6 +54,7 @@ type DesktopSettingsTabId = SettingsTabId;
 const TAB_ITEMS: { id: DesktopSettingsTabId; label: string }[] = [
   { id: 'pet', label: '桌面宠物' },
   { id: 'sync', label: '云端同步' },
+  { id: 'phone', label: '手机桥接' },
   { id: 'app', label: '应用' },
   { id: 'about', label: '关于' },
   { id: 'plan', label: '余量凭证' },
@@ -255,6 +257,9 @@ export function SettingsPanel({
                 }
               />
             ))}
+        </Tabs.Panel>
+        <Tabs.Panel className="h-[50vh] overflow-hidden p-4 text-left" id="phone">
+          {tab === 'phone' && <PhoneBridgeSettings />}
         </Tabs.Panel>
         <Tabs.Panel className="h-[50vh] overflow-hidden p-4 text-left" id="app">
           {tab === 'app' && <AppSettingsPanel />}

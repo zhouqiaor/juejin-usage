@@ -114,6 +114,26 @@ const SUBSCRIPTION_KEYS_GET_STATUS_CHANNEL = 'subscription-keys:get-status';
 const SUBSCRIPTION_KEYS_SAVE_CHANNEL = 'subscription-keys:save';
 const SUBSCRIPTION_KEYS_CLEAR_CHANNEL = 'subscription-keys:clear';
 const ARK_SUBSCRIPTION_GET_CHANNEL = 'ark-subscription:get';
+const PC_BRIDGE_ENABLE_CHANNEL = 'pc-bridge:enable';
+const PC_BRIDGE_DISABLE_CHANNEL = 'pc-bridge:disable';
+const PC_BRIDGE_STATUS_CHANNEL = 'pc-bridge:status';
+
+export interface PcBridgePairingInfo {
+  ip: string;
+  port: number;
+  token: string;
+  url: string;
+  qrDataUrl: string;
+}
+
+export interface PcBridgeStatusInfo {
+  enabled: boolean;
+  host: string;
+  port: number;
+  ip: string;
+  token: string | null;
+  url: string | null;
+}
 
 type SettingsTabId = 'sync' | 'pet' | 'app' | 'plan';
 
@@ -218,6 +238,14 @@ const tudApi = {
     url: string,
   ): Promise<{ ok: boolean; message?: string }> =>
     ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
+
+  /** D4 PC bridge：开启局域网桥接（启动 :8453 + 轮换 token + 回传配对信息/QR）。 */
+  pcBridgeEnable: (): Promise<PcBridgePairingInfo> =>
+    ipcRenderer.invoke(PC_BRIDGE_ENABLE_CHANNEL),
+  pcBridgeDisable: (): Promise<PcBridgeStatusInfo> =>
+    ipcRenderer.invoke(PC_BRIDGE_DISABLE_CHANNEL),
+  pcBridgeStatus: (): Promise<PcBridgeStatusInfo> =>
+    ipcRenderer.invoke(PC_BRIDGE_STATUS_CHANNEL),
 
   /**
    * Ask the main process to re-height the tray popover. Main owns the bounds
