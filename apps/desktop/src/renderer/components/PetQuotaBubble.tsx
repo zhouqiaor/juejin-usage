@@ -33,7 +33,7 @@ import {
   projectSecondaryRowsFromWindows,
   projectToCompactRows,
 } from '../../shared/pet-quota-providers';
-import { useNowTick } from '../lib/useNowTick';
+import { useNowTick } from '../hooks/useNowTick';
 
 const COLOR_TEXT = '#171717';
 const COLOR_MUTED = '#737373';

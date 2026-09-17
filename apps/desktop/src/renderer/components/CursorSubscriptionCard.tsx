@@ -5,7 +5,7 @@ import {
 } from '../../shared/cursor-subscription';
 import { SubscriptionUsageCard, type SubscriptionUsageMetric } from './SubscriptionUsageCard';
 import { SubscriptionBrandIcon } from './SubscriptionBrandIcon';
-import { useNowTick } from '../lib/useNowTick';
+import { useNowTick } from '../hooks/useNowTick';
 import { formatResetCountdown } from '../../shared/subscription-reset';
 import { useSubscriptionPrefs } from '../lib/useSubscriptionPrefs';
 

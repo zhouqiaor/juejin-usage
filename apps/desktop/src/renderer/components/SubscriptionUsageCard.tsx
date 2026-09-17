@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Card } from '@heroui/react';
 import { MetricBarRow } from './SubscriptionMetricBar';
-import { useNowTick } from '../lib/useNowTick';
+import { useNowTick } from '../hooks/useNowTick';
 import {
   buildStaleTooltip,
   formatHHmmss,

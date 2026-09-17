@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// renderer/lib/useNowTick.ts — 轻量定时重渲染 hook
+// renderer/hooks/useNowTick.ts — 轻量定时重渲染 hook
 //
 // 用于让「n 分钟前更新」这类相对时间随墙钟走动。30s 一跳即可（订阅卡
 // 刷新粒度本身是 60s），不要用每秒 tick 制造无意义渲染。
