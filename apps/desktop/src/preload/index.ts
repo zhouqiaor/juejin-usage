@@ -117,13 +117,24 @@ const ARK_SUBSCRIPTION_GET_CHANNEL = 'ark-subscription:get';
 const PC_BRIDGE_ENABLE_CHANNEL = 'pc-bridge:enable';
 const PC_BRIDGE_DISABLE_CHANNEL = 'pc-bridge:disable';
 const PC_BRIDGE_STATUS_CHANNEL = 'pc-bridge:status';
+const PC_BRIDGE_RESET_IDENTITY_CHANNEL = 'pc-bridge:reset-identity';
+
+export interface PcBridgeEnableOptions {
+  /** true=用户显式同意后对局域网开放（绑 0.0.0.0）；缺省/false=仅 127.0.0.1 回环。 */
+  lan?: boolean;
+}
 
 export interface PcBridgePairingInfo {
   ip: string;
+  host: string;
   port: number;
   token: string;
   url: string;
+  tls: boolean;
+  lan: boolean;
+  spki256: string | null;
   qrDataUrl: string;
+  qrError: string | null;
 }
 
 export interface PcBridgeStatusInfo {
@@ -133,6 +144,9 @@ export interface PcBridgeStatusInfo {
   ip: string;
   token: string | null;
   url: string | null;
+  tls: boolean;
+  lan: boolean;
+  spki256: string | null;
 }
 
 type SettingsTabId = 'sync' | 'pet' | 'app' | 'plan';
@@ -239,13 +253,17 @@ const tudApi = {
   ): Promise<{ ok: boolean; message?: string }> =>
     ipcRenderer.invoke(OPEN_EXTERNAL_CHANNEL, url),
 
-  /** D4 PC bridge：开启局域网桥接（启动 :8453 + 轮换 token + 回传配对信息/QR）。 */
-  pcBridgeEnable: (): Promise<PcBridgePairingInfo> =>
-    ipcRenderer.invoke(PC_BRIDGE_ENABLE_CHANNEL),
+  /** D4 PC bridge：开启桥接（HTTPS :8453 + 轮换 token + 回传配对信息/QR/指纹）。
+   *  opts.lan=true 须来自设置页显式同意（对所有网卡开放）；缺省仅绑 127.0.0.1。 */
+  pcBridgeEnable: (options?: PcBridgeEnableOptions): Promise<PcBridgePairingInfo> =>
+    ipcRenderer.invoke(PC_BRIDGE_ENABLE_CHANNEL, options),
   pcBridgeDisable: (): Promise<PcBridgeStatusInfo> =>
     ipcRenderer.invoke(PC_BRIDGE_DISABLE_CHANNEL),
   pcBridgeStatus: (): Promise<PcBridgeStatusInfo> =>
     ipcRenderer.invoke(PC_BRIDGE_STATUS_CHANNEL),
+  /** 重置自签身份（旧手机配对因指纹变更立即被阻断，需重新扫码）。 */
+  pcBridgeResetIdentity: (): Promise<PcBridgePairingInfo | null> =>
+    ipcRenderer.invoke(PC_BRIDGE_RESET_IDENTITY_CHANNEL),
 
   /**
    * Ask the main process to re-height the tray popover. Main owns the bounds

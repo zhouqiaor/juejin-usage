@@ -89,12 +89,17 @@ declare global {
         url: string,
       ) => Promise<{ ok: boolean; message?: string }>;
       /** D4 PC bridge（手机用量同步），契约 v1 见 DESIGN-2026-09-17-pcbridge-mvp.md。 */
-      pcBridgeEnable: () => Promise<{
+      pcBridgeEnable: (options?: { lan?: boolean }) => Promise<{
         ip: string;
+        host: string;
         port: number;
         token: string;
         url: string;
+        tls: boolean;
+        lan: boolean;
+        spki256: string | null;
         qrDataUrl: string;
+        qrError: string | null;
       }>;
       pcBridgeDisable: () => Promise<{
         enabled: boolean;
@@ -103,6 +108,9 @@ declare global {
         ip: string;
         token: string | null;
         url: string | null;
+        tls: boolean;
+        lan: boolean;
+        spki256: string | null;
       }>;
       pcBridgeStatus: () => Promise<{
         enabled: boolean;
@@ -111,7 +119,22 @@ declare global {
         ip: string;
         token: string | null;
         url: string | null;
+        tls: boolean;
+        lan: boolean;
+        spki256: string | null;
       }>;
+      pcBridgeResetIdentity: () => Promise<{
+        ip: string;
+        host: string;
+        port: number;
+        token: string;
+        url: string;
+        tls: boolean;
+        lan: boolean;
+        spki256: string | null;
+        qrDataUrl: string;
+        qrError: string | null;
+      } | null>;
       resizeTrayPopover: (height: number) => void;
       getDashboardRange: () => Promise<
         import('../shared/dashboard-range').DashboardRange
